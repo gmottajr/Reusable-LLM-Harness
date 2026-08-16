@@ -91,25 +91,262 @@ The core project has no reference to provider-specific projects or SDKs.
 
 ## Run locally
 
-Requires the .NET 8 SDK.
+The shortest path to experiencing the project is to run the API and call it
+with `curl`. You need the .NET 8 SDK, `curl`, and optionally `jq` for readable
+JSON extraction.
+
+### 1. Clone and enter the repository
+
+```bash
+git clone https://github.com/gmottajr/Reusable-LLM-Harness.git
+cd Reusable-LLM-Harness
+```
+
+If you are working from an existing checkout, start from its root instead.
+
+### 2. Restore, build, and test
 
 ```bash
 dotnet restore
 dotnet build
 dotnet test
-dotnet run --project src/LlmHarness.Api
 ```
 
-The health endpoint is available at `http://localhost:5000/health` (or the
-URL printed by ASP.NET Core) and returns:
+The tests are focused on the reliability behavior that matters most: input and
+output validation, retries, non-retryable errors, timeouts, fallback,
+provider selection, provider mapping, managed-model safety, orchestration, and
+API behavior.
+
+### 3. Configure OpenAI
+
+The demo API reads the key from the process environment. Set it only in your
+local shell or secret manager; do not put it in a file committed to Git.
+
+```bash
+export OPENAI_API_KEY='your-api-key'
+```
+
+The API can still start without a key. In that case OpenAI appears as
+unavailable and requests that select it return a structured provider error.
+
+### 4. Start the API
+
+Use a fixed local URL so the `curl` examples and React playground use the same
+address:
+
+```bash
+dotnet run --project src/LlmHarness.Api --urls http://localhost:5000
+```
+
+Keep this terminal running. Open a second terminal in the repository root for
+the remaining steps.
+
+### 5. Check that the API is alive
+
+```bash
+curl -sS http://localhost:5000/health
+```
+
+Expected result:
 
 ```json
 {"status":"healthy"}
 ```
 
-The completion demo accepts provider, model, timeout, messages, and an optional
-JSON output schema. Provider selection and execution remain inside
-`ILlmHarness`; the API host only maps HTTP requests and responses.
+Check provider availability without exposing credentials:
+
+```bash
+curl -sS http://localhost:5000/api/providers/status | jq .
+```
+
+With `OPENAI_API_KEY` set, OpenAI should report `available: true`. Without it,
+the response explains that the provider is unavailable but never returns the
+key itself. The managed local provider is unavailable until its model has been
+downloaded and its runtime started, unless managed runtime auto-start is
+enabled.
+
+### 6. Submit a structured completion
+
+Create a request file:
+
+```bash
+cat > request.json <<'JSON'
+{
+  "provider": "OpenAI",
+  "model": "gpt-4.1-mini",
+  "timeoutMs": 10000,
+  "messages": [
+    {"role": "system", "content": "Return JSON only."},
+    {"role": "user", "content": "Give me a fictional engineer name and role."}
+  ],
+  "outputSchema": {
+    "type": "object",
+    "required": ["name", "role"],
+    "properties": {
+      "name": {"type": "string"},
+      "role": {"type": "string"}
+    }
+  }
+}
+JSON
+```
+
+Send it to the API:
+
+```bash
+curl -sS -X POST http://localhost:5000/api/llm/complete \
+  -H 'Content-Type: application/json' \
+  --data @request.json | jq .
+```
+
+The API maps this HTTP payload into the provider-independent `LlmRequest` and
+passes it to `ILlmHarness`. The API does not call OpenAI directly.
+
+### 7. Extract and understand the result
+
+A successful response has this shape:
+
+```json
+{
+  "success": true,
+  "data": {"name": "Ada", "role": "Engineer"},
+  "error": null,
+  "metadata": {
+    "provider": "OpenAI",
+    "model": "gpt-4.1-mini",
+    "attempts": 1,
+    "retryCount": 0,
+    "durationMs": 742.31,
+    "timeoutMs": 10000,
+    "fallbackUsed": false,
+    "correlationId": "..."
+  }
+}
+```
+
+Save one response and inspect the pieces independently. Saving the response
+also avoids sending the same paid request three times:
+
+```bash
+response=$(curl -sS -X POST http://localhost:5000/api/llm/complete \
+  -H 'Content-Type: application/json' --data @request.json)
+
+# The typed/structured model output
+echo "$response" | jq '.data'
+
+# Provider, timing, retry, and fallback behavior
+echo "$response" | jq '.metadata'
+
+# Failure details, when success is false
+echo "$response" | jq '.error'
+```
+
+Important metadata fields:
+
+- `provider` and `model` show what actually handled the request.
+- `attempts` and `retryCount` show transient-failure recovery.
+- `durationMs` and `timeoutMs` show execution timing and the applied limit.
+- `fallbackUsed` shows whether the optional fallback path ran.
+- `correlationId` identifies the request in safe operational logs.
+
+The HTTP status also communicates the broad failure class: malformed input is
+`400`, an unavailable provider is `503`, a timeout is `504`, and downstream
+provider/output failures use a structured error envelope.
+
+### 8. See validation fail before a provider call
+
+Change the request to use an invalid role:
+
+```bash
+curl -sS -X POST http://localhost:5000/api/llm/complete \
+  -H 'Content-Type: application/json' \
+  -d '{"messages":[{"role":"not-a-role","content":"hello"}]}' | jq .
+```
+
+The response is HTTP `400` with `error.type` equal to
+`InputValidationError`. This demonstrates the main safety boundary: invalid
+requests are rejected before a provider is called.
+
+## What this project is demonstrating
+
+The main purpose is not to hide an SDK call behind another method. It is to
+provide a small reliability and safety layer around LLM calls:
+
+```text
+application request
+  -> input validation
+  -> provider selection
+  -> retry transient failures
+  -> enforce timeout
+  -> use optional fallback
+  -> deserialize typed output
+  -> validate output schema
+  -> return structured result and safe metadata
+```
+
+To experience that flow, compare the same completion request across a
+configured OpenAI provider and the optional managed local provider. The
+application-facing contract stays the same while the provider, timing,
+attempts, validation, and failure metadata remain visible in the response.
+
+## Optional: use the React playground
+
+With the API still running on port `5000`, open a third terminal:
+
+```bash
+cd frontend/llm-harness-web
+npm install
+npm run dev
+```
+
+Open `http://localhost:5173`. The Vite server proxies `/api` to the .NET API.
+The page lets you choose a provider, enter a model and prompt, edit the output
+schema, submit a request, inspect provider availability, and view result
+metadata. It contains no API-key input; credentials remain in the backend
+process.
+
+## Optional: use a managed local model
+
+The managed local model extension is not required for the OpenAI walkthrough.
+To try it, install a compatible `llama-server` executable, then set its path:
+
+```bash
+export LLM_HARNESS_RUNTIME_EXECUTABLE=/path/to/llama-server
+```
+
+Start the API, list the curated catalog, download the supported model, and
+start the runtime:
+
+```bash
+curl -sS http://localhost:5000/api/models | jq .
+curl -sS -X POST \
+  http://localhost:5000/api/models/smollm2-135m-instruct-q4km/download | jq .
+curl -sS -X POST \
+  http://localhost:5000/api/models/smollm2-135m-instruct-q4km/start | jq .
+```
+
+Then change `request.json` to:
+
+```json
+{
+  "provider": "LocalOpenAiCompatible",
+  "model": "smollm2-135m-instruct-q4km",
+  "timeoutMs": 30000,
+  "messages": [
+    {"role": "user", "content": "Return a short JSON greeting."}
+  ],
+  "outputSchema": {
+    "type": "object",
+    "required": ["message"],
+    "properties": {"message": {"type": "string"}}
+  }
+}
+```
+
+Submit it with the same completion command. The model must come from the
+curated catalog and pass checksum verification; arbitrary download URLs are
+not accepted. See [Managed local models](docs/managed-models.md) for lifecycle
+configuration and runtime details.
 
 ## Documentation
 
