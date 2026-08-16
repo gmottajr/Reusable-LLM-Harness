@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>LlmHarness.Providers.Local</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\LlmHarness.Core\LlmHarness.Core.csproj" />
+    <ProjectReference Include="..\LlmHarness.ManagedModels\LlmHarness.ManagedModels.csproj" />
+  </ItemGroup>
+</Project>

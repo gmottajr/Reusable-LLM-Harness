@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <RootNamespace>LlmHarness.Api</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\LlmHarness.Core\LlmHarness.Core.csproj" />
+    <ProjectReference Include="..\LlmHarness.ManagedModels\LlmHarness.ManagedModels.csproj" />
+    <ProjectReference Include="..\LlmHarness.Providers.Local\LlmHarness.Providers.Local.csproj" />
+    <ProjectReference Include="..\LlmHarness.Providers.OpenAI\LlmHarness.Providers.OpenAI.csproj" />
+  </ItemGroup>
+</Project>
