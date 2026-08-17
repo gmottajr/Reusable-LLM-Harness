@@ -569,3 +569,28 @@ configuration and runtime details.
 - [API examples and configuration](docs/api-examples.md)
 - [Managed local models](docs/managed-models.md)
 - [React playground](frontend/llm-harness-web/README.md)
+
+## Assessment: Residential Care CRM — AI Layer System Design
+
+### Question
+
+You are building the AI layer of a CRM and operating system for owners of
+residential care facilities for the elderly. Describe, in writing, how you
+would design:
+
+1. A multi-agent swarm triggered by a new resident intake form submission,
+   including an orchestrator agent and sub-agents for medical history,
+   regulatory compliance, and family communication. What does each agent own,
+   and how do they communicate?
+2. A looping incident-reporting workflow that classifies incidents, routes
+   them to the correct notification path, and includes a max-iteration guard
+   with a human escalation path if the loop does not converge.
+
+### Response
+
+The complete corrected system-design response is maintained in
+[`docs/residential-care-crm-system-design.md`](docs/residential-care-crm-system-design.md).
+It presents the three-plane architecture, the core Adaptive Intelligence
+Plane using runtime RAG and governed LoRA, agent ownership and contracts, the
+bounded incident loop, deterministic notification routing, human escalation,
+and the reliability and validation model.
