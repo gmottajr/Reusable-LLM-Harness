@@ -652,9 +652,9 @@ and independently reviewed test behavior.
 
 A concrete example came from my work on the **Everykey
 fingerprint/autofill system**. I gave Claude an implementation specification
-and reviewed the resulting Git diff directly. The implementation introduced a
-**weighted scoring engine** by generalizing from common autofill approaches,
-even though the existing `ff_field_mappings_v1` storage design already
+and reviewed the resulting Git diff directly. The agent implementation introduced a
+**weighted scoring engine** by generalizing from common autofill approaches, without let me know about it,
+even though the existing default map data storage design already
 provided the required exact-match mechanism. The generated code was internally
 reasonable and the agent reported the implementation as successful, but it was
 an architectural deviation from the specified design. I rejected that
