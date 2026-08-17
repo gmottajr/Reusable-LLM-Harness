@@ -89,7 +89,7 @@ const BROWSER_TEMPERATURE = 0.2
 
 const SOURCE_OPTIONS: Array<{ id: SourceId; number: string; title: string; description: string }> = [
   { id: 'cloud-api', number: '01', title: 'Cloud API', description: 'Call a hosted provider such as OpenAI.' },
-  { id: 'managed-local', number: '02', title: 'Run in browser', description: 'Download and execute a curated model with WebGPU.' },
+  { id: 'managed-local', number: '02', title: 'Browser WebLLM showcase', description: 'Demonstrate the harness with an LLM running entirely in the browser through WebGPU.' },
   { id: 'installed-local', number: '03', title: 'Installed local LLM', description: 'Connect to Ollama, LM Studio, or another compatible server.' },
 ]
 
@@ -532,6 +532,10 @@ function App() {
           <span className="eyebrow">LLM HARNESS / SETUP FIRST</span>
           <h1>Choose where your model lives.</h1>
           <p>Select one of the three supported paths, configure it, then use the same chat surface to test the call.</p>
+          <div className="showcase-callout" role="note">
+            <span className="showcase-label">OPTIONAL SHOWCASE PROVIDER</span>
+            <p><strong>What if the harness ran entirely in the browser?</strong> WebLLM + WebGPU demonstrates that the same harness abstraction is not limited to cloud APIs. The reusable reliability layer remains backend-first.</p>
+          </div>
         </div>
         <div className="top-actions">
           <div className={`api-indicator ${apiReady ? '' : 'is-warning'}`}><span className="pulse-dot" /><span>{loading ? 'Checking API' : apiReady ? 'API connected' : 'API setup error'}</span></div>
