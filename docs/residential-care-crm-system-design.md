@@ -89,6 +89,14 @@ flowchart TB
         Registry[Evaluated Adapter Registry]
     end
 
+    subgraph OP[Audit and Observability Plane]
+        Audit[(Append-only Audit and Domain Events)]
+        OTel[OpenTelemetry Instrumentation and Collector]
+        Router[Configurable Telemetry Router]
+        Signals[Redacted Operational Signals]
+        Sinks[Datadog | Sentry | Grafana | Local Files | Custom DB]
+    end
+
     IntakeWF --> Medical
     IntakeWF --> Compliance
     IntakeWF --> Family
@@ -131,6 +139,27 @@ flowchart TB
     Memory --> Miner
     Miner --> Registry
     Registry --> Adapter
+
+    IntakeWF --> Audit
+    IncidentWF --> Audit
+    Medical --> Audit
+    Compliance --> Audit
+    Family --> Audit
+    Classifier --> Audit
+    Validator --> Audit
+    Human --> Audit
+    IntakeWF --> OTel
+    IncidentWF --> OTel
+    Medical --> OTel
+    Compliance --> OTel
+    Family --> OTel
+    Classifier --> OTel
+    Validator --> OTel
+    OTel --> Router
+    Router --> Sinks
+    OTel --> Signals
+    Audit --> Memory
+    Signals --> Memory
 ```
 
 ## Intake workflow and agent ownership
@@ -344,6 +373,54 @@ classification. Delivery commands use idempotency keys, acknowledgement
 tracking, bounded backoff, and a dead-letter path. If delivery cannot be
 confirmed, operations or a human is alerted without corrupting or replaying
 the reasoning state.
+
+## Observability, audit trail, and operational memory
+
+Observability is a first-class, configurable plane rather than an afterthought.
+The system emits structured logs, distributed traces, metrics, provider
+responses, retry and circuit-breaker transitions, queue age, token/cost data,
+retrieval results, agent runs, validation failures, human overrides, and
+notification outcomes. I would instrument the .NET services with `ILogger`,
+`Activity`/`ActivitySource`, and `Meter`, export through
+[OpenTelemetry](https://opentelemetry.io/), and route through an OTLP-capable
+collector or an application-level `IObservabilitySink` abstraction. Deployment
+configuration can then select one or more sinks—Datadog, Sentry, Grafana
+(for example, Loki/Tempo/Prometheus-compatible endpoints), another OTLP
+provider, local JSON-lines files for development, or custom append-only audit
+tables in the application database—without changing agent or workflow code.
+Sampling, retention, redaction, tenant routing, and dual-write/failover
+behavior should be configurable per environment and event class. Local files
+are useful for development and emergency diagnostics, but are not the durable
+production audit record by themselves.
+
+The audit trail and observability telemetry serve related but different roles.
+An append-only audit/domain-event store is the authoritative record of what the
+system decided and did: workflow transitions, agent inputs and outputs by
+reference, evidence references, policy/model/prompt/adapter versions, human
+decisions, notification commands, and causation/correlation IDs. Operational
+telemetry explains how the system behaved: latency, exceptions, provider
+status, retries, circuit state, retrieval failures, queue pressure, and
+resource consumption. Telemetry may be sampled or delayed and therefore is not
+authoritative domain truth.
+
+Both streams feed a controlled projection pipeline. Audit events and validated
+human outcomes become provenance-aware workflow and case projections for RAG.
+Redacted observability signals can also help the Exception Resolution Agent
+detect repeated no-progress loops, stale policy retrieval, provider outages,
+or abnormal model behavior. Raw logs, traces, prompts, and unreviewed telemetry
+are never inserted directly into Case RAG or treated as precedent. Before any
+observability-derived signal enters operational memory, the pipeline applies
+tenant and authorization filters, removes secrets and unnecessary resident
+data, records provenance and retention metadata, and requires validation when
+the signal could influence a consequential decision.
+
+Every event should carry a workflow/case/resident/incident identifier where
+appropriate, tenant and facility scope, event type, timestamp, schema version,
+severity, correlation ID, causation ID, producer version, and sensitivity
+classification. Access to audit tables, telemetry providers, local files, and
+RAG projections is separately permissioned and audited. This makes
+observability useful for both live operations and institutional learning while
+preventing the system from converting diagnostic noise into trusted knowledge.
 
 ## Reliability, security, and validation
 

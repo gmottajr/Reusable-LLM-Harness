@@ -593,7 +593,8 @@ The complete corrected system-design response is maintained in
 It presents the three-plane architecture, the core Adaptive Intelligence
 Plane using runtime RAG and governed LoRA, agent ownership and contracts, the
 bounded incident loop, deterministic notification routing, human escalation,
-and the reliability and validation model.
+the configurable audit and observability plane, and the reliability and
+validation model.
 
 ## Assessment: LLM Resilience, Secrets, and Security
 
