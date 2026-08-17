@@ -89,14 +89,22 @@ Retrying is limited to rate limits, 5xx responses, request timeouts, and
 transient network failures. Client errors such as 400 and 401, validation
 errors, and output schema errors are not retried.
 
-When a request times out, the harness returns a structured `TimeoutError`. If a
-fallback harness is configured, it is attempted once and `FallbackUsed` is set
-in the result metadata.
+When a request times out, the harness returns a structured `TimeoutError`. The
+API can enable the core fallback path by naming another configured provider in
+`LlmHarness:FallbackProvider` (or `LLM_HARNESS_FALLBACK_PROVIDER`). It is
+attempted once after the timeout, only when that provider is available, and
+`FallbackUsed` is set in the result metadata. Fallback is deliberately opt-in
+so a timeout does not silently create a second billable provider call.
 
 The orchestration logger receives correlation IDs and provider/model/result
-metadata. Provider responses are also written to the backend `.log` file to
-diagnose schema and parsing failures; prompts and credentials are not included.
-Do not use this diagnostic logging with sensitive production responses.
+metadata. The backend `.log` file can also include complete harness request and
+response payloads to diagnose provider, schema, and parsing failures. Payloads
+are redacted recursively for credential-shaped fields such as API keys,
+authorization headers, bearer tokens, passwords, cookies, and client secrets.
+Prompts and model responses can still contain sensitive business data, so this
+diagnostic mode is intended for development. Disable payloads with
+`LlmHarness:Logging:IncludePayloads=false` or
+`LLM_HARNESS_LOG_PAYLOADS=false`.
 
 The API writes request, completion, harness, and unexpected-error flow events to
 `src/LlmHarness.Api/logs/llm-harness.log` when running from the repository. Set
@@ -147,6 +155,11 @@ result metadata, structured errors, Swagger navigation, and a downloadable
 frontend `.log` flow trace. See
 [`frontend/llm-harness-web/README.md`](frontend/llm-harness-web/README.md) for
 the complete frontend workflow and endpoint list.
+
+The playground also offers optional advisory input-schema validation. Users can
+define a flexible schema in a dialog and turn it on or off; mismatches are
+shown in the page and frontend log but never prevent the request from reaching
+the selected LLM provider.
 
 ## Frontend screens and usage
 
@@ -278,9 +291,17 @@ are not encrypted, so do not use them as a production secret store.
 Optional cloud configuration:
 
 ```bash
+dotnet user-secrets set 'OpenAI-API-settings:ApiKey' 'your-openai-key'
+dotnet user-secrets set 'OpenAI-API-settings:Model' 'gpt-4o-mini'
+dotnet user-secrets set 'OpenAI-API-settings:URL' 'https://api.openai.com/v1/chat/completions'
 export OPENAI_ENDPOINT='https://api.openai.com/v1/chat/completions'
 export OPENAI_DEFAULT_MODEL='gpt-4o-mini'
 ```
+
+The API loads provider-specific option DTOs from configuration through
+dependency injection. The nested User Secrets sections are the preferred
+local format; matching environment variables remain supported for containers
+and deployment environments.
 
 Google Gemini can be configured with User Secrets:
 
@@ -293,6 +314,17 @@ dotnet user-secrets set 'Google-LLM:URL' 'https://generativelanguage.googleapis.
 The frontend Cloud API setup panel lets you choose OpenAI, Google Gemini,
 Mistral, or Grok. The browser sends only the provider/model selection; API keys
 remain in the backend process.
+
+To enable a timeout fallback during local development, choose a provider that
+has a configured backend key:
+
+```bash
+dotnet user-secrets set 'LlmHarness:FallbackProvider' 'GoogleGemini'
+```
+
+The same setting can be supplied as `LLM_HARNESS_FALLBACK_PROVIDER` in a
+container or deployment environment. Supported values are the registered
+provider enum names, such as `OpenAi`, `GoogleGemini`, `Mistral`, and `Grok`.
 
 The API can still start without a key. In that case OpenAI appears as
 unavailable and requests that select it return a structured provider error.

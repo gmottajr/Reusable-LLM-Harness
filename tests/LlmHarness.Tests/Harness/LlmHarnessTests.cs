@@ -28,9 +28,27 @@ public sealed class LlmHarnessTests
         Assert.Equal("{\"answer\":\"ok\"}", result.Metadata.RawResponse);
         Assert.False(string.IsNullOrWhiteSpace(result.Metadata.CorrelationId));
         Assert.Equal(1, provider.CompleteCalls);
+        var started = Assert.Single(logger.Events, logEvent => logEvent.Status == "started");
+        Assert.Contains("Hello", started.RequestPayload);
+        var completed = Assert.Single(logger.Events, logEvent => logEvent.Status == "success");
+        Assert.Contains("Hello", completed.RequestPayload);
+        Assert.Equal("{\"answer\":\"ok\"}", completed.ResponsePayload);
         Assert.Contains(logger.Events, logEvent => logEvent.Status == "started");
         Assert.Contains(logger.Events, logEvent => logEvent.Status == "success");
         Assert.All(logger.Events, logEvent => Assert.DoesNotContain("answer", logEvent.Status));
+    }
+
+    [Fact]
+    public void Payload_redactor_masks_credential_shaped_fields_without_dropping_other_data()
+    {
+        var payload = "{\"apiKey\":\"secret-value\",\"messages\":[{\"content\":\"keep this\"}],\"nested\":{\"authorization\":\"Bearer token-value\"}}";
+
+        var redacted = LlmPayloadRedactor.Redact(payload);
+
+        Assert.DoesNotContain("secret-value", redacted);
+        Assert.DoesNotContain("token-value", redacted);
+        Assert.Contains("keep this", redacted);
+        Assert.Contains("[REDACTED]", redacted);
     }
 
     [Fact]

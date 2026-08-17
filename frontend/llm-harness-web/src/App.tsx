@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { BrowserLlmClient, BrowserLlmTimeoutError, type BrowserProgress } from './browser-llm-client'
+import { validateAdvisorySchema, type AdvisoryValidationIssue } from './advisory-schema'
 
 type SourceId = 'cloud-api' | 'managed-local' | 'installed-local'
 type CloudProvider = 'OpenAI' | 'GoogleGemini' | 'Mistral' | 'Grok'
@@ -82,6 +83,7 @@ type DownloadToastState = {
   message: string
   error?: string | null
 }
+type AdvisoryValidationState = { status: 'idle' | 'valid' | 'invalid'; message: string; issues?: AdvisoryValidationIssue[] }
 
 const DEFAULT_SCHEMA = `{}`
 const BROWSER_MAX_TOKENS = 512
@@ -163,6 +165,10 @@ function App() {
   const [prompt, setPrompt] = useState('Give me a name and role for a fictional engineer.')
   const [schemaEnabled, setSchemaEnabled] = useState(true)
   const [schema, setSchema] = useState(DEFAULT_SCHEMA)
+  const [inputSchemaEnabled, setInputSchemaEnabled] = useState(false)
+  const [inputSchema, setInputSchema] = useState(DEFAULT_SCHEMA)
+  const [inputSchemaOpen, setInputSchemaOpen] = useState(false)
+  const [inputValidation, setInputValidation] = useState<AdvisoryValidationState>({ status: 'idle', message: '' })
   const [timeoutMs, setTimeoutMs] = useState('10000')
   const [loading, setLoading] = useState(true)
   const [setupBusy, setSetupBusy] = useState(false)
@@ -188,6 +194,35 @@ function App() {
     link.download = `llm-harness-frontend-${new Date().toISOString().replaceAll(':', '-')}.log`
     link.click()
     URL.revokeObjectURL(url)
+  }
+
+  function validateInputAdvisory(request: unknown) {
+    if (!inputSchemaEnabled) {
+      setInputValidation({ status: 'idle', message: '' })
+      return
+    }
+
+    let parsedSchema: unknown
+    try {
+      parsedSchema = JSON.parse(inputSchema)
+      if (!parsedSchema || typeof parsedSchema !== 'object' || Array.isArray(parsedSchema)) throw new Error('The input schema root must be a JSON object.')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'The input schema is invalid JSON.'
+      setInputValidation({ status: 'invalid', message })
+      log('WARN', `Advisory input validation skipped reason=invalid-schema message=${message}`)
+      return
+    }
+
+    const issues = validateAdvisorySchema(request, parsedSchema)
+    if (issues.length > 0) {
+      const message = `Advisory input validation found ${issues.length} issue${issues.length === 1 ? '' : 's'}. The request will still be sent.`
+      setInputValidation({ status: 'invalid', message, issues })
+      log('WARN', `Advisory input validation failed issueCount=${issues.length} firstPath=${issues[0].path}`)
+      return
+    }
+
+    setInputValidation({ status: 'valid', message: 'Advisory input validation passed. The request will be sent.' })
+    log('INFO', 'Advisory input validation passed requestWillBeSent=true')
   }
 
   async function loadSetup() {
@@ -411,6 +446,12 @@ function App() {
       messages,
       ...(schemaEnabled ? { outputSchema: parsedSchema } : {}),
     }
+    validateInputAdvisory({
+      provider,
+      model: model.trim() || null,
+      timeoutMs: numericTimeout,
+      messages,
+    })
     setSubmitting(true)
     log('INFO', source === 'managed-local'
       ? `Completion request validated Browser WebLLM structuredOutput=${schemaEnabled}`
@@ -578,6 +619,8 @@ function App() {
             </div>
             <label className="field"><span>System instruction <small>OPTIONAL</small></span><input value={systemPrompt} onChange={(event) => setSystemPrompt(event.target.value)} /></label>
             <label className="field"><span>User prompt</span><textarea rows={4} value={prompt} onChange={(event) => setPrompt(event.target.value)} /></label>
+            <div className="input-schema-bar"><div><span>Input validation <small>ADVISORY ONLY</small></span><p>Checks the request envelope without blocking the LLM call.</p></div><button className="secondary-button" type="button" onClick={() => setInputSchemaOpen(true)}>Configure</button><span className={`advisory-state advisory-state-${inputSchemaEnabled ? inputValidation.status : 'off'}`}>{inputSchemaEnabled ? inputValidation.status : 'off'}</span></div>
+            {inputValidation.status !== 'idle' && <div className={`advisory-result advisory-result-${inputValidation.status}`}><strong>{inputValidation.message}</strong>{inputValidation.issues?.slice(0, 3).map((issue) => <span key={`${issue.path}-${issue.message}`}>{issue.path}: {issue.message}</span>)}</div>}
             <div className="schema-heading"><span>Output schema <small>JSON SCHEMA SUBSET · {} ACCEPTS ANY JSON</small></span><button className={`toggle ${schemaEnabled ? 'is-on' : ''}`} type="button" onClick={() => setSchemaEnabled((value) => !value)}><span className="toggle-track"><span /></span>{schemaEnabled ? 'Structured JSON on' : 'Structured JSON off'}</button></div>
             {schemaEnabled && <textarea className="code-input schema-input" rows={8} value={schema} onChange={(event) => setSchema(event.target.value)} />}
             {requestError && <div className="inline-error">{requestError}</div>}
@@ -591,6 +634,7 @@ function App() {
         </section>
       </main>
       {downloadToast && <DownloadToast toast={downloadToast} onDismiss={() => setDownloadToast(null)} />}
+      {inputSchemaOpen && <InputSchemaDialog enabled={inputSchemaEnabled} schema={inputSchema} validation={inputValidation} onToggle={() => setInputSchemaEnabled((value) => !value)} onChange={setInputSchema} onValidate={() => validateInputAdvisory({ provider: source === 'cloud-api' ? cloudProvider : source === 'managed-local' ? 'BrowserWebLLM' : 'Ollama', model: source === 'cloud-api' ? cloudModel : source === 'managed-local' ? managedModel : installedModel, timeoutMs: Number(timeoutMs), messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }] })} onClose={() => setInputSchemaOpen(false)} />}
       <footer className="footer-note"><span>ONE SOURCE SELECTED AT A TIME.</span><span>KEYS STAY ON THE BACKEND.</span><span>EVERY ACTION IS LOGGED.</span></footer>
     </div>
   )
@@ -620,6 +664,10 @@ function DownloadToast({ toast, onDismiss }: { toast: DownloadToastState; onDism
     <div className="download-progress-meta"><span>{completed ? 'Verified' : failed ? 'Failed' : `${toast.percentage.toFixed(1)}%`}</span><span>{toast.totalBytes ? `${formatBytes(toast.bytesDownloaded)} / ${formatBytes(toast.totalBytes)}` : 'Browser cache'}</span></div>
     <div className="download-progress-track"><span style={{ width: `${Math.min(100, Math.max(0, toast.percentage))}%` }} /></div>
   </aside>
+}
+
+function InputSchemaDialog({ enabled, schema, validation, onToggle, onChange, onValidate, onClose }: { enabled: boolean; schema: string; validation: AdvisoryValidationState; onToggle: () => void; onChange: (value: string) => void; onValidate: () => void; onClose: () => void }) {
+  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><section className="schema-dialog" role="dialog" aria-modal="true" aria-labelledby="input-schema-title"><div className="dialog-heading"><div><span className="toast-kicker">OPTIONAL REQUEST CHECK</span><h2 id="input-schema-title">Input schema validation</h2></div><button className="dialog-close" type="button" onClick={onClose} aria-label="Close input schema dialog">×</button></div><p className="dialog-copy">Define a flexible JSON Schema for the request envelope. This is advisory only: a mismatch is shown in the page and log, but the LLM request is still sent.</p><div className="dialog-toggle"><span>Enable advisory validation</span><button className={`toggle ${enabled ? 'is-on' : ''}`} type="button" onClick={onToggle}><span className="toggle-track"><span /></span>{enabled ? 'On' : 'Off'}</button></div><textarea className="code-input" rows={12} value={schema} onChange={(event) => onChange(event.target.value)} aria-label="Input JSON schema" /><div className="dialog-actions"><button className="secondary-button" type="button" onClick={onValidate}>Validate current request</button><button type="button" onClick={onClose}>Done</button></div>{validation.status !== 'idle' && <div className={`advisory-result advisory-result-${validation.status}`}><strong>{validation.message}</strong></div>}</section></div>
 }
 
 function InstalledSetup({ setup, endpoint, model, setEndpoint, setModel, busy, onSave }: { setup: InstalledSetup | null; endpoint: string; model: string; setEndpoint: (value: string) => void; setModel: (value: string) => void; busy: boolean; onSave: (testOnly?: boolean) => void }) {

@@ -19,7 +19,12 @@ public static class ApiServiceCollectionExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
+        services.AddSingleton(new LlmLoggingOptions
+        {
+            IncludePayloads = ReadBoolean(configuration, "LlmHarness:Logging:IncludePayloads", "LLM_HARNESS_LOG_PAYLOADS", defaultValue: true)
+        });
         services.AddSingleton<ILlmHarnessLogger, AspNetLlmHarnessLogger>();
+        var fallbackProviderKind = ReadFallbackProvider(configuration);
         var runtimeOptions = new ManagedRuntimeOptions();
         var modelStoragePath = Environment.GetEnvironmentVariable("LLM_HARNESS_MODEL_STORAGE") ??
             Path.Combine(AppContext.BaseDirectory, "managed-models");
@@ -34,10 +39,13 @@ public static class ApiServiceCollectionExtensions
         services.AddHttpClient("LlmHarness.InstalledLocal");
         services.AddSingleton(new OpenAiOptions
         {
-            ApiKey = configuration["OPENAI_API_KEY"] ?? string.Empty,
-            Endpoint = configuration["OPENAI_ENDPOINT"] ??
+            ApiKey = configuration["OpenAI-API-settings:ApiKey"] ??
+                configuration["OPENAI_API_KEY"] ?? string.Empty,
+            Endpoint = configuration["OpenAI-API-settings:URL"] ??
+                configuration["OPENAI_ENDPOINT"] ??
                 "https://api.openai.com/v1/chat/completions",
-            DefaultModel = configuration["OPENAI_DEFAULT_MODEL"] ?? "gpt-4o-mini"
+            DefaultModel = configuration["OpenAI-API-settings:Model"] ??
+                configuration["OPENAI_DEFAULT_MODEL"] ?? "gpt-4o-mini"
         });
         services.AddSingleton(new GoogleGeminiOptions
         {
@@ -150,8 +158,38 @@ public static class ApiServiceCollectionExtensions
                 serviceProvider.GetRequiredService<IEnumerable<ILlmProvider>>(),
                 timeoutOptions: new LlmTimeoutOptions(),
                 providerSelectionOptions: new ProviderSelectionOptions(),
-                logger: serviceProvider.GetRequiredService<ILlmHarnessLogger>()));
+                logger: serviceProvider.GetRequiredService<ILlmHarnessLogger>(),
+                fallbackProviderKind: fallbackProviderKind));
 
         return services;
+    }
+
+    private static LlmProviderKind? ReadFallbackProvider(IConfiguration configuration)
+    {
+        var value = configuration["LlmHarness:FallbackProvider"] ??
+            configuration["LLM_HARNESS_FALLBACK_PROVIDER"];
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        if (Enum.TryParse<LlmProviderKind>(value, ignoreCase: true, out var provider) &&
+            Enum.IsDefined(provider))
+        {
+            return provider;
+        }
+
+        throw new InvalidOperationException(
+            $"LlmHarness fallback provider '{value}' is not a supported provider.");
+    }
+
+    private static bool ReadBoolean(
+        IConfiguration configuration,
+        string configurationKey,
+        string environmentKey,
+        bool defaultValue)
+    {
+        var value = configuration[configurationKey] ?? configuration[environmentKey];
+        return bool.TryParse(value, out var parsed) ? parsed : defaultValue;
     }
 }

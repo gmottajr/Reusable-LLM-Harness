@@ -24,9 +24,8 @@ public sealed record LlmLogEvent
 
     public bool FallbackUsed { get; init; }
 
-    // Populated only for output-validation diagnostics. These fields are
-    // intentionally kept out of normal flow events unless a schema mismatch
-    // needs investigation.
+    // Raw and normalized fields support output-validation diagnostics. Request
+    // and response payloads are available to the configured diagnostic logger.
     public string? RawResponse { get; init; }
 
     public string? NormalizedResponse { get; init; }
@@ -38,4 +37,8 @@ public sealed record LlmLogEvent
     public string? ErrorMessage { get; init; }
 
     public string? ErrorCode { get; init; }
+
+    public string? RequestPayload { get; init; }
+
+    public string? ResponsePayload { get; init; }
 }

@@ -154,7 +154,8 @@ public sealed class LlmHarness : ILlmHarness
             CorrelationId = correlationId,
             Status = "started",
             Provider = provider.Kind,
-            Model = request.Model
+            Model = request.Model,
+            RequestPayload = SerializeRequest(request)
         });
 
     private void LogCompleted<TOutput>(
@@ -174,6 +175,8 @@ public sealed class LlmHarness : ILlmHarness
             ErrorType = result.Error?.Type,
             FallbackUsed = result.Metadata.FallbackUsed,
             RawResponse = result.Metadata.RawResponse,
+            RequestPayload = request is null ? null : SerializeRequest(request),
+            ResponsePayload = result.Metadata.RawResponse,
             ErrorMessage = result.Error?.Message,
             ErrorCode = result.Error?.Code
         });
@@ -204,6 +207,23 @@ public sealed class LlmHarness : ILlmHarness
             ? LlmResult<TOutput>.CreateSuccess(result.Output!, metadata)
             : LlmResult<TOutput>.CreateFailure(result.Error!, metadata);
     }
+
+    private static string SerializeRequest(LlmRequest request) =>
+        System.Text.Json.JsonSerializer.Serialize(new
+        {
+            provider = request.Provider?.ToString(),
+            model = request.Model,
+            executionMode = request.ExecutionMode.ToString(),
+            timeoutMs = request.Timeout.TotalMilliseconds,
+            temperature = request.Temperature,
+            maxTokens = request.MaxTokens,
+            messages = request.Messages.Select(message => new
+            {
+                role = message.Role.ToString(),
+                content = message.Content
+            }),
+            outputSchema = request.OutputSchema
+        });
 
     private static LlmMetadata Metadata(
         string correlationId,

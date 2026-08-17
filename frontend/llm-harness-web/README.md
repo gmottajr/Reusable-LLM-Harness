@@ -12,7 +12,8 @@ LLM:
 1. **Cloud API**
 
    Choose OpenAI, Google Gemini, Mistral, or Grok. OpenAI uses
-   `OPENAI_API_KEY`; Gemini uses `Google-LLM:ApiKey` or
+   `OpenAI-API-settings:ApiKey` or `OPENAI_API_KEY`; Gemini uses
+   `Google-LLM:ApiKey` or
    `GOOGLE_GEMINI_API_KEY`; Mistral uses `Mistral-API-settings:ApiKey` or
    `MISTRAL_API_KEY`; and Grok uses `Grok-API-settings:XAI_API_KEY` or
    `XAI_API_KEY`. The Gemini integration calls `generateContent`; Mistral and
@@ -42,7 +43,8 @@ variables:
 
 ```bash
 cd ../../src/LlmHarness.Api
-dotnet user-secrets set OPENAI_API_KEY 'your-openai-key'
+dotnet user-secrets set 'OpenAI-API-settings:ApiKey' 'your-openai-key'
+dotnet user-secrets set 'OpenAI-API-settings:Model' 'gpt-4o-mini'
 dotnet user-secrets set 'Google-LLM:ApiKey' 'your-gemini-key'
 dotnet user-secrets set 'Google-LLM:Model' 'gemini-flash-latest'
 dotnet user-secrets set 'Mistral-API-settings:ApiKey' 'your-mistral-key'
@@ -74,6 +76,10 @@ Never put credentials in this project, `appsettings.json`,
   by the browser runtime.
 - Shared system instruction, user prompt, timeout, and structured JSON schema
   controls.
+- Optional advisory input-schema validation. Open **Configure** next to Input
+  validation, define a flexible JSON Schema for the request envelope, and turn
+  the check on or off. A mismatch is shown in the page and frontend log but
+  never blocks the LLM request.
 - Structured JSON defaults to a flexible `{}` schema, which accepts any valid
   JSON value. Replace it with `type`, `required`, and `properties` when strict
   response validation is needed.
@@ -98,6 +104,18 @@ When schema validation fails, the backend log includes the raw provider
 response, normalized JSON, schema, and failing JSON path for diagnosis. Treat
 that file as sensitive during development because model responses may contain
 private data.
+
+The backend can also log the complete harness request and response payloads for
+development diagnostics. Credential-shaped JSON fields and bearer tokens are
+redacted, but prompts and completions may still contain sensitive content. Set
+`LlmHarness:Logging:IncludePayloads` to `false` in User Secrets, or set
+`LLM_HARNESS_LOG_PAYLOADS=false`, to return to metadata-only backend logging.
+
+Timeout fallback is enabled by configuration rather than by the browser. Set
+`LlmHarness:FallbackProvider` (for example, `GoogleGemini`) to a registered and
+configured backend provider. After a timeout, the core attempts that provider
+once and reports `FallbackUsed` in the result metadata. The fallback is not
+silently selected when no provider is configured or available.
 
 ## Browser performance diagnostics
 
@@ -165,6 +183,13 @@ The shared request panel is used for all three paths. Set the model, timeout,
 system instruction, user prompt, and output schema, then select **Run
 completion**. The default `{}` schema accepts any valid JSON. Enter a stricter
 schema only when the response must contain specific fields.
+
+Input validation is separate and advisory. Use **Configure** to open the input
+schema dialog, enable the check, and define a schema for the outgoing request
+envelope (`provider`, `model`, `timeoutMs`, and `messages`). If the schema is
+invalid or the request does not match it, the page reports the issue and still
+continues with the LLM call. This keeps exploratory provider testing
+non-blocking while making input-shape problems visible.
 
 ### 4. Inspect the result and logs
 
