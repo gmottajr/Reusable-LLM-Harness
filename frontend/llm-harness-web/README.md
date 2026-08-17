@@ -18,11 +18,14 @@ LLM:
    `XAI_API_KEY`. The Gemini integration calls `generateContent`; Mistral and
    Grok use their OpenAI-compatible chat-completions endpoints.
 
-2. **Download and manage**
+2. **Run in browser**
 
-   Select a model from the curated catalog, download and verify it, start or
-   stop the managed runtime, and then send requests through the harness.
-   Downloads and model files are handled by the backend, not by the browser.
+   Select a model from the curated catalog, download its WebLLM/MLC artifacts
+   into browser storage, start or stop the WebGPU runtime, and run completions
+   locally. The catalog includes SmolLM2 135M, Qwen3 0.6B, DeepSeek-R1 Distill
+   Qwen 7B, Google Gemma 3 1B Instruct, Qwen Tiny 0.5B, and Qwen Small 0.6B.
+   The Tiny and Small entries use q4f16 WebLLM artifacts to reduce GPU memory
+   pressure. Gemma is subject to Google's Gemma terms of use.
 
 3. **Installed local LLM**
 
@@ -55,11 +58,20 @@ Never put credentials in this project, `appsettings.json`,
 
 ## What the page provides
 
-- Source cards with separate readiness status for Cloud API, managed local,
+- Source cards with separate readiness status for Cloud API, browser WebLLM,
   and installed local modes.
 - Cloud provider selection between OpenAI, Google Gemini, Mistral, and Grok.
-- Source-specific configuration panels for model, endpoint, download, verify,
+- Source-specific configuration panels for browser model loading, endpoint,
   start, stop, and connectivity testing.
+- A curated WebLLM model selector with Qwen Tiny, Qwen Small, DeepSeek-R1
+  Distill Qwen, SmolLM2, and Gemma browser-playground options. The browser loads the model through a
+  dedicated Worker and never sends browser prompts to the API.
+- Browser model tiers (`lightweight`, `standard`, `heavy`, and
+  `experimental`), recommendation flags, estimated GPU memory, and a heavy-model
+  confirmation warning.
+- A styled browser-model download toast with live percentage and a progress
+  bar. WebLLM reports loading progress from the Worker; model files are cached
+  by the browser runtime.
 - Shared system instruction, user prompt, timeout, and structured JSON schema
   controls.
 - Structured JSON defaults to a flexible `{}` schema, which accepts any valid
@@ -80,22 +92,48 @@ Never put credentials in this project, `appsettings.json`,
 
 The matching backend flow is written to
 `src/LlmHarness.Api/logs/llm-harness.log`.
+Managed-model downloads log their start, throttled progress updates, checksum
+verification result, completion, cancellation, or failure in that same file.
 When schema validation fails, the backend log includes the raw provider
 response, normalized JSON, schema, and failing JSON path for diagnosis. Treat
 that file as sensitive during development because model responses may contain
 private data.
 
+## Browser performance diagnostics
+
+Browser-local completion entries in the frontend `.log` include the execution
+signals needed to compare devices and models without recording prompts or
+responses. A typical entry looks like:
+
+```text
+Browser completion response received model=Qwen3-0.6B-q4f16_1-MLC durationMs=21402 promptChars=74 outputChars=842 maxTokens=512 temperature=0.2 schemaEnabled=true coldStart=true tokensPerSecond=12.40 modelTier=lightweight wasCached=true timeoutMs=60000
+```
+
+The fields mean:
+
+- `promptChars` and `outputChars`: character counts, not token counts.
+- `maxTokens`, `temperature`, and `schemaEnabled`: the generation settings
+  sent to WebLLM.
+- `coldStart`: the completion request had to load the browser model runtime.
+- `wasCached`: the model artifacts were already available in browser storage
+  before that load; it is not a KV-cache hit.
+- `tokensPerSecond`: WebLLM's decode rate when reported, with a measured
+  fallback when token usage is available.
+- `modelTier` and `timeoutMs`: the catalog classification and request limit.
+
+This makes a slow completion diagnosable without changing the core harness
+position. The backend remains the primary reusable reliability layer; WebLLM
+is an optional provider adapter demonstrating that the same concept can run
+entirely client-side with WebGPU.
+
 ## API calls used by the page
 
 ```text
 GET  /api/setup/sources
-GET  /api/models
+GET  /api/models                 (catalog metadata and browserModelId)
 GET  /api/setup/installed-local
 PUT  /api/setup/installed-local
 POST /api/setup/installed-local/test
-POST /api/models/{modelId}/download
-POST /api/models/{modelId}/start
-POST /api/models/stop
 POST /api/llm/complete
 ```
 
@@ -110,8 +148,8 @@ The source cards select exactly one execution path:
 
 - **Cloud API**: choose OpenAI, Google Gemini, Mistral, or Grok. The API reads
   the secret and calls the provider from the backend.
-- **Download and manage**: select a curated model, download and verify it, and
-  start or stop its managed runtime.
+- **Run in browser**: select a curated WebLLM model, load it into browser
+  storage, start or stop the WebGPU runtime, and run the completion locally.
 - **Installed local LLM**: enter an existing OpenAI-compatible server URL and
   model, then save and test the connection.
 

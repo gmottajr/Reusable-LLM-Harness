@@ -1,9 +1,10 @@
-# Managed Local Models (Optional Stretch)
+# Managed Local Models (Backend Compatibility)
 
-This extension lets the API download one curated small GGUF model, verify it,
-start a local OpenAI-compatible runtime, and call it through the same
-`ILlmHarness` pipeline. It is optional; cloud-only use does not require a model
-download or a local runtime.
+The playground's **Run in browser** path does not use this backend runtime. It
+loads WebLLM/MLC artifacts in a browser Worker and executes them with WebGPU.
+This document describes the optional backend compatibility API for deployments
+that intentionally want to run a GGUF model through an installed
+`llama-server` process instead.
 
 ## Prerequisites
 
@@ -16,9 +17,9 @@ export LLM_HARNESS_RUNTIME_EXECUTABLE=/path/to/llama-server
 The runtime is expected to support `--model`, `--host`, `--port`, `--alias`,
 `GET /health`, and `POST /v1/chat/completions`.
 
-The catalog currently contains SmolLM2 135M Instruct in GGUF Q4_K_M form. Its
-download URL and SHA-256 are pinned in code and sourced from the [curated model
-file](https://huggingface.co/Mungert/SmolLM2-135M-Instruct-GGUF/blob/main/SmolLM2-135M-Instruct-q4_k_m.gguf).
+The catalog contains pinned GGUF compatibility entries. The browser mappings
+are exposed separately as `browserModelId` values in `GET /api/models`; those
+IDs are consumed by the WebLLM frontend and are not GGUF files.
 
 ## Configuration
 
@@ -42,7 +43,7 @@ curl -X POST http://localhost:5000/api/models/smollm2-135m-instruct-q4km/start
 curl -X POST http://localhost:5000/api/models/stop
 ```
 
-The download endpoint reports `Downloading`, `Downloaded`, or `Failed` status
+The compatibility download endpoint reports `Downloading`, `Downloaded`, or `Failed` status
 with byte counts and percentage. Poll the model status endpoint while a
 download is in progress. Starting is rejected until the file exists and its
 SHA-256 matches the catalog.
@@ -71,3 +72,18 @@ model ID:
 No endpoint accepts a user-supplied model URL. Adding a model requires a code
 reviewed catalog entry with an allowlisted URL, filename, runtime name, and
 checksum.
+
+## Browser path
+
+For the frontend, choose **Run in browser**. The browser model identifiers
+currently map to WebLLM artifacts such as `SmolLM2-135M-Instruct-q0f32-MLC`,
+`Qwen2.5-0.5B-Instruct-q4f16_1-MLC` (Qwen Tiny),
+`Qwen3-0.6B-q4f16_1-MLC` (Qwen Small),
+`DeepSeek-R1-Distill-Qwen-7B-q4f16_1-MLC`, and
+`gemma3-1b-it-q4f16_1-MLC`. No `llama-server` executable is required for that
+path, and the browser sends neither prompts nor completions to the API.
+
+Browser catalog entries also expose `browserTier`, `browserRecommended`,
+`browserVramRequiredMb`, and an optional `browserWarning`. The frontend uses
+these fields to guide model selection and asks for confirmation before loading
+heavy models such as DeepSeek-R1 Distill Qwen 7B.

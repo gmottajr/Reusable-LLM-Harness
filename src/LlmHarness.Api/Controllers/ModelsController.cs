@@ -69,6 +69,11 @@ public sealed class ModelsController : ControllerBase
             return NotFound(new { error = "The requested model is not in the curated catalog." });
         }
 
+        if (_catalog.Find(modelId)!.BrowserOnly)
+        {
+            return Conflict(new { error = "This model is browser-only. Download it from the WebLLM browser runtime." });
+        }
+
         return Ok(await _downloads.DownloadAsync(modelId, cancellationToken));
     }
 
@@ -81,6 +86,11 @@ public sealed class ModelsController : ControllerBase
         if (model is null)
         {
             return NotFound(new { error = "The requested model is not in the curated catalog." });
+        }
+
+        if (model.BrowserOnly)
+        {
+            return Conflict(new { error = "This model is browser-only. Start it from the WebLLM browser runtime." });
         }
 
         var stored = await _storage.InspectAsync(model, cancellationToken);
@@ -131,6 +141,12 @@ public sealed class ModelsController : ControllerBase
             model.Description,
             model.SizeBytes,
             model.License,
+            model.BrowserModelId,
+            model.BrowserOnly,
+            model.BrowserVramRequiredMb,
+            model.BrowserTier,
+            model.BrowserRecommended,
+            model.BrowserWarning,
             state.ToString(),
             download.BytesDownloaded,
             download.TotalBytes,
@@ -147,6 +163,12 @@ public sealed class ModelsController : ControllerBase
         string Description,
         long? SizeBytes,
         string License,
+        string? BrowserModelId,
+        bool BrowserOnly,
+        double? BrowserVramRequiredMb,
+        string? BrowserTier,
+        bool BrowserRecommended,
+        string? BrowserWarning,
         string State,
         long BytesDownloaded,
         long? TotalBytes,

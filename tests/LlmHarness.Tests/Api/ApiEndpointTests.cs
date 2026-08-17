@@ -176,9 +176,28 @@ public sealed class ApiEndpointTests : IClassFixture<WebApplicationFactory<Progr
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        var model = Assert.Single(document.RootElement.EnumerateArray());
-        Assert.Equal("smollm2-135m-instruct-q4km", model.GetProperty("id").GetString());
-        Assert.Equal("NotDownloaded", model.GetProperty("state").GetString());
+        var models = document.RootElement.EnumerateArray().ToArray();
+        Assert.Contains(models, model =>
+            model.GetProperty("id").GetString() == "smollm2-135m-instruct-q4km" &&
+            model.GetProperty("state").GetString() == "NotDownloaded");
+        Assert.Contains(models, model => model.GetProperty("id").GetString() == "qwen2.5-0.5b-instruct-q4km");
+        Assert.Contains(models, model =>
+            model.GetProperty("id").GetString() == "qwen3-0.6b-q4f16-browser" &&
+            model.GetProperty("browserModelId").GetString() == "Qwen3-0.6B-q4f16_1-MLC" &&
+            model.GetProperty("browserOnly").GetBoolean());
+        Assert.Contains(models, model =>
+            model.GetProperty("browserModelId").GetString() == "Qwen2.5-0.5B-Instruct-q4f16_1-MLC" &&
+            model.GetProperty("browserOnly").GetBoolean());
+        Assert.Contains(models, model => model.GetProperty("browserModelId").GetString() == "gemma3-1b-it-q4f16_1-MLC");
+        Assert.Contains(models, model => model.GetProperty("id").GetString() == "deepseek-r1-distill-qwen-1.5b-q4km");
+        Assert.Contains(models, model =>
+            model.GetProperty("id").GetString() == "deepseek-r1-distill-qwen-7b-q4f16-browser" &&
+            model.GetProperty("browserModelId").GetString() == "DeepSeek-R1-Distill-Qwen-7B-q4f16_1-MLC" &&
+            model.GetProperty("browserOnly").GetBoolean() &&
+            model.GetProperty("browserTier").GetString() == "heavy" &&
+            !model.GetProperty("browserRecommended").GetBoolean() &&
+            model.GetProperty("browserWarning").GetString()!.Contains("5", StringComparison.Ordinal));
+        Assert.Contains(models, model => model.GetProperty("id").GetString() == "gemma-3-1b-it-q4km");
     }
 
     [Fact]
@@ -189,5 +208,15 @@ public sealed class ApiEndpointTests : IClassFixture<WebApplicationFactory<Progr
             content: null);
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Browser_only_model_download_is_not_sent_to_backend_runtime()
+    {
+        using var response = await _client.PostAsync(
+            "/api/models/qwen2.5-0.5b-instruct-q4f16-browser/download",
+            content: null);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
     }
 }

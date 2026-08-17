@@ -9,17 +9,20 @@ public sealed class ModelDownloadService : IModelDownloadService
     private readonly IModelCatalogService _catalog;
     private readonly IModelStorageService _storage;
     private readonly HttpClient _httpClient;
+    private readonly Action<string>? _log;
     private readonly ConcurrentDictionary<string, ManagedModelStatus> _statuses = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks = new(StringComparer.OrdinalIgnoreCase);
 
     public ModelDownloadService(
         IModelCatalogService catalog,
         IModelStorageService storage,
-        HttpClient httpClient)
+        HttpClient httpClient,
+        Action<string>? log = null)
     {
         _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
         _storage = storage ?? throw new ArgumentNullException(nameof(storage));
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+        _log = log;
     }
 
     public async Task<ManagedModelStatus> GetStatusAsync(
@@ -51,9 +54,11 @@ public sealed class ModelDownloadService : IModelDownloadService
             var existing = await _storage.InspectAsync(model, cancellationToken);
             if (existing.IsValid)
             {
+                WriteLog($"Managed model download skipped modelId={model.Id} reason=already_verified");
                 return SetStatus(Status(model, ManagedModelState.Downloaded, existing.BytesDownloaded, model.SizeBytes, 100));
             }
 
+            WriteLog($"Managed model download started modelId={model.Id} modelName={model.Name} uri={model.DownloadUri}");
             SetStatus(Status(model, ManagedModelState.Downloading, 0, model.SizeBytes, 0));
             using var response = await _httpClient.GetAsync(
                 model.DownloadUri,
@@ -62,35 +67,47 @@ public sealed class ModelDownloadService : IModelDownloadService
             response.EnsureSuccessStatusCode();
             await using var content = await response.Content.ReadAsStreamAsync(cancellationToken);
             var totalBytes = response.Content.Headers.ContentLength ?? model.SizeBytes;
+            var lastLoggedPercentage = -5d;
 
             await _storage.SaveAsync(
                 model,
                 content,
                 totalBytes,
                 new Progress<ModelDownloadProgress>(progress =>
+                {
                     SetStatus(Status(
                         model,
                         ManagedModelState.Downloading,
                         progress.BytesDownloaded,
                         progress.TotalBytes,
-                        progress.Percentage))),
+                        progress.Percentage));
+                    if (progress.Percentage >= lastLoggedPercentage + 5 || progress.Percentage >= 100)
+                    {
+                        lastLoggedPercentage = progress.Percentage;
+                        WriteLog($"Managed model download progress modelId={model.Id} bytesDownloaded={progress.BytesDownloaded} totalBytes={progress.TotalBytes} percentage={progress.Percentage:0.0}");
+                    }
+                }),
                 cancellationToken);
 
             var storedAfterDownload = await _storage.InspectAsync(model, cancellationToken);
-            return SetStatus(Status(
+            var completed = SetStatus(Status(
                 model,
                 ManagedModelState.Downloaded,
                 storedAfterDownload.BytesDownloaded,
                 model.SizeBytes,
                 100));
+            WriteLog($"Managed model download completed modelId={model.Id} bytesDownloaded={completed.BytesDownloaded} verified=true");
+            return completed;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            WriteLog($"Managed model download canceled modelId={modelId}");
             SetStatus(Status(model, ManagedModelState.Failed, error: "Model download was canceled."));
             throw;
         }
         catch (Exception exception)
         {
+            WriteLog($"Managed model download failed modelId={modelId} message={exception.Message}");
             return SetStatus(Status(model, ManagedModelState.Failed, error: exception.Message));
         }
         finally
@@ -107,6 +124,8 @@ public sealed class ModelDownloadService : IModelDownloadService
         _statuses[status.ModelId] = status;
         return status;
     }
+
+    private void WriteLog(string message) => _log?.Invoke(message);
 
     private static ManagedModelStatus Status(
         ManagedModelDefinition model,

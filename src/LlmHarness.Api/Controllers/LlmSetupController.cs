@@ -71,8 +71,8 @@ public sealed class LlmSetupController : ControllerBase
                 _openAiOptions.DefaultModel),
             new LlmSourceStatusResponse(
                 "managed-local",
-                "Download and manage a model",
-                "Download the curated model, verify it, and run it locally through the managed runtime.",
+                "Run a model in this browser",
+                "Load a curated WebLLM model into browser storage and execute it with WebGPU.",
                 LlmHarness.Core.Enums.LlmProviderKind.LocalOpenAiCompatible.ToString(),
                 managedAvailable,
                 managedAvailable,

@@ -10,4 +10,10 @@ public sealed record ManagedModelDefinition(
     long? SizeBytes,
     string Sha256,
     string RuntimeModelName,
-    string License);
+    string License,
+    string? BrowserModelId = null,
+    bool BrowserOnly = false,
+    double? BrowserVramRequiredMb = null,
+    string? BrowserTier = null,
+    bool BrowserRecommended = false,
+    string? BrowserWarning = null);

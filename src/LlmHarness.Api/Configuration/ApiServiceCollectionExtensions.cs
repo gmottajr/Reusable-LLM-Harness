@@ -84,7 +84,10 @@ public static class ApiServiceCollectionExtensions
                 serviceProvider.GetRequiredService<IModelCatalogService>(),
                 serviceProvider.GetRequiredService<IModelStorageService>(),
                 serviceProvider.GetRequiredService<IHttpClientFactory>()
-                    .CreateClient("LlmHarness.ManagedModelDownload")));
+                    .CreateClient("LlmHarness.ManagedModelDownload"),
+                message => serviceProvider
+                    .GetRequiredService<ILogger<ModelDownloadService>>()
+                    .LogInformation("{ManagedModelDownloadEvent}", message)));
         services.AddSingleton<IModelRuntimeService>(serviceProvider =>
             new ModelRuntimeService(
                 serviceProvider.GetRequiredService<ManagedRuntimeOptions>(),

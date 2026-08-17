@@ -61,6 +61,27 @@ local-model extension. Phase 10 adds centralized provider selection:
 The managed local-model extension is explicitly optional and does not change the
 core harness contracts. A standard externally managed local provider remains a
 separate integration choice.
+
+## Showcase: a browser-local harness provider
+
+The assessment target is the small reusable backend harness. Its core story is
+provider-agnostic reliability: validation, retry, timeout, fallback, logging,
+redaction, and structured results around an LLM call.
+
+As a showcase extension, the same harness-oriented flow can also run an LLM
+entirely in the browser through WebLLM and WebGPU. This explores the question:
+what if the harness did not need a cloud API or a backend inference server at
+all? It demonstrates that the abstraction can support cloud APIs, backend-local
+runtimes, and browser-local inference without moving credentials into the
+frontend or changing the request-oriented UI.
+
+Browser WebLLM is intentionally an optional demo provider, not the core MVP or
+the default production path. Browser inference has different tradeoffs,
+including WebGPU compatibility, large model downloads, GPU memory limits,
+slower cold starts, and device-dependent throughput. The frontend records
+browser performance fields such as prompt/output size, configured token limit,
+temperature, schema mode, cold-start state, cache state, model tier, timeout,
+and WebLLM decode tokens/second when available.
 The built-in schema validator supports `type`, `required`,
 `properties`, `items`, `additionalProperties`, `enum`, and `const`.
 
@@ -89,8 +110,14 @@ The playground exposes three distinct LLM source modes:
    Each provider reads its API key from backend User Secrets or its matching
    environment variable. Gemini uses the `generateContent` REST API; Mistral
    and Grok use OpenAI-compatible chat completions.
-2. **Download and manage** — the API owns the curated model catalog, download,
-   checksum verification, and local runtime lifecycle.
+2. **Run in browser** — the React client loads curated WebLLM/MLC artifacts
+   into browser storage and executes them with WebGPU. The catalog currently
+   includes SmolLM2 135M, Qwen3 0.6B, DeepSeek-R1 Distill Qwen 7B, and Google
+   Gemma 3 1B Instruct, plus Qwen Tiny 0.5B and Qwen Small 0.6B variants for
+   lower-memory devices. Browser models are classified as lightweight,
+   standard, heavy, or experimental, with recommended flags and GPU-memory
+   guidance. Prompts and completions stay in the browser for this mode; the API
+   only supplies catalog metadata.
 3. **Installed local LLM** — configure an existing Ollama, LM Studio, or other
    OpenAI-compatible server in the UI. The API also accepts
    `LLM_HARNESS_INSTALLED_LOCAL_ENDPOINT`, `LLM_HARNESS_INSTALLED_LOCAL_MODEL`,
@@ -104,7 +131,7 @@ results.
 ## Frontend behavior
 
 The React playground is organized around one active source at a time. The user
-first selects Cloud API, Download and manage, or Installed local LLM. The page
+first selects Cloud API, Run in browser, or Installed local LLM. The page
 then shows only the setup controls relevant to that source and reuses one
 shared completion form for the actual request.
 
@@ -124,8 +151,8 @@ the complete frontend workflow and endpoint list.
 ## Frontend screens and usage
 
 The playground has one shared layout with a source-specific setup panel. Select
-one source at a time; the lower request form always sends the completion through
-`POST /api/llm/complete`.
+one source at a time. Cloud API and Installed local use the backend completion
+route; browser WebLLM requests run directly inside the frontend Worker.
 
 ### Cloud API
 
@@ -137,14 +164,16 @@ never entered into or sent by the browser. Use the shared request form to set
 the prompt, timeout, and optional schema. The default `{}` schema accepts any
 valid JSON response.
 
-### Download and manage
+### Run in browser
 
-![Download and manage screen](docs/screenshots/download-and-manage.png)
+![Run in browser screen](docs/screenshots/download-and-manage.png)
 
-Choose a curated model, then use **Download & verify**, **Start runtime**, or
-**Stop**. Model files, checksum verification, and runtime operations are owned
-by the API. After the runtime is ready, select the model in the request form and
-run a completion.
+Choose SmolLM2, Qwen3, DeepSeek-R1 Distill Qwen, or Gemma 3, then use **Download
+to browser** or **Start browser runtime**. WebLLM downloads MLC artifacts from
+its curated model sources, caches them in browser storage, and runs inference
+with WebGPU. The API is not called for the prompt or completion. While loading,
+the page shows a styled toast with percentage and a progress bar. Gemma remains
+subject to Google's Gemma terms of use.
 
 ### Installed local LLM
 
@@ -159,7 +188,10 @@ backend calls the configured local server.
 
 The request panel accepts the model, timeout, system instruction, user prompt,
 and optional JSON schema. The result panel displays returned data, provider,
-model, duration, attempts, timeout, fallback, and correlation metadata. The
+model, duration, attempts, timeout, fallback, and correlation metadata. For
+browser-local completions it also shows prompt/output character counts,
+generation settings, schema mode, cold-start/cache state, model tier, and
+tokens/second when WebLLM reports it. The
 frontend flow log records UI actions and HTTP outcomes and can be downloaded;
 the backend writes the detailed flow and provider-response diagnostics to
 `src/LlmHarness.Api/logs/llm-harness.log`.
@@ -297,9 +329,9 @@ curl -sS http://localhost:5000/api/providers/status | jq .
 
 With `OPENAI_API_KEY` set, OpenAI should report `available: true`. Without it,
 the response explains that the provider is unavailable but never returns the
-key itself. The managed local provider is unavailable until its model has been
-downloaded and its runtime started, unless managed runtime auto-start is
-enabled.
+key itself. The optional backend GGUF compatibility provider is unavailable
+until its model has been downloaded and its runtime started. The normal
+**Run in browser** path is checked by the frontend through WebGPU instead.
 
 The source-oriented setup endpoints used by the playground are:
 
@@ -454,10 +486,12 @@ schema, submit a request, inspect provider availability, and view result
 metadata. It contains no API-key input; credentials remain in the backend
 process.
 
-## Optional: use a managed local model
+## Optional: use the backend GGUF compatibility runtime
 
-The managed local model extension is not required for the OpenAI walkthrough.
-To try it, install a compatible `llama-server` executable, then set its path:
+The normal frontend path is **Run in browser** and does not require
+`llama-server`. The API still exposes an optional GGUF compatibility runtime
+for deployments that explicitly need server-side local inference. To use that
+legacy path, install a compatible `llama-server` executable and set its path:
 
 ```bash
 export LLM_HARNESS_RUNTIME_EXECUTABLE=/path/to/llama-server
