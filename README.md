@@ -704,3 +704,92 @@ AI can generate implementations, propose tests, identify edge cases, and
 accelerate review, but I do not delegate correctness or architectural
 authority to it. **Passing is not the same as correct; the test itself must
 also be reviewed.**
+
+## Assessment: Behavioral Question
+
+### Question
+
+Share a real example from your professional experience: a significant
+technical failure or production bug you were responsible for. How did you take
+ownership, fix it, communicate it to stakeholders, and prevent it from
+happening again?
+
+### Response
+
+#### Situation and constraint
+
+At AmerisourceBergen/Innomar Strategies, I inherited a project responsible for
+exporting Adverse Event reports related to Roche medications. The contractual
+integration interface required reports to be delivered as text files through
+FTP. I had recommended a more standard API or messaging-based B2B integration,
+but FTP was the agreed constraint, so I implemented within it.
+
+The service ran every five minutes, collected generated AE files from a network
+location, and transferred them to Roche’s FTP server. It was also my first time
+building this type of FTP-based production integration.
+
+#### Failure and impact
+
+The integration worked consistently during development and testing. However,
+on the first day in production, we began receiving file-lock errors. The
+problem disrupted downstream processing of submitted files and required an
+immediate investigation.
+
+#### Root cause
+
+I discovered that I was uploading files directly into the directory monitored
+by Roche’s downstream process. Roche could detect and attempt to process or
+move a file while my FTP session was still writing it.
+
+The transfer itself was valid, but I had treated the presence of a file as
+equivalent to the completion of that file. My tests verified that our service
+could transfer files, but did not reproduce both systems operating
+concurrently.
+
+#### Ownership and communication
+
+When my manager contacted me, I took ownership of investigating the incident.
+I communicated the observed impact, separated confirmed facts from
+assumptions, identified the race condition, and proposed a remediation plan.
+
+The FTP protocol was a constraint, but the publication semantics and missing
+concurrency test were my responsibility. I focused the communication on the
+technical cause, containment, corrective action, and validation plan rather
+than assigning blame to the external system or integration partner.
+
+#### Fix and result
+
+I changed the workflow so that files were first uploaded to a temporary
+staging directory on Roche’s FTP server that was not monitored by the
+downstream process. Only after the FTP upload completed successfully was the
+file moved into the production inbound directory using the server-supported
+publication operation.
+
+This separated **transfer** from **publication**. A file becoming visible in
+the monitored directory now meant that it was complete and ready for
+processing. I validated the complete producer-consumer workflow, including the
+downstream consumer operating while files were being transferred, rather than
+testing only our side of the connection.
+
+#### Prevention and lesson
+
+The main lesson was that a successful integration test is not necessarily a
+successful **system integration test**. My original tests proved that our
+component could transfer a file, but they did not test the boundary between two
+independently operating systems.
+
+Since then, when designing asynchronous or B2B integrations, I explicitly
+consider:
+
+- temporary files and atomic publication;
+- concurrent consumers;
+- partial writes;
+- unique filenames and idempotency;
+- retries and replay;
+- monitoring and alerting;
+- downstream processing failures; and
+- end-to-end producer-consumer tests.
+
+The incident changed how I evaluate integrations. I no longer ask only
+whether my component works; I also ask what another system can observe while
+my component is still operating.
