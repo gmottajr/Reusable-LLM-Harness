@@ -594,3 +594,26 @@ It presents the three-plane architecture, the core Adaptive Intelligence
 Plane using runtime RAG and governed LoRA, agent ownership and contracts, the
 bounded incident loop, deterministic notification routing, human escalation,
 and the reliability and validation model.
+
+## Assessment: LLM Resilience, Secrets, and Security
+
+### Question
+
+Answer in writing. Be specific — cite tools, patterns, and real tradeoffs.
+
+1. How do you design fallback and retry logic when an LLM provider goes down
+   or hits severe rate limits in production? Walk through your
+   circuit-breaker strategy.
+2. How are API keys and secrets stored, accessed, and rotated in your builds?
+   How do you scope permissions to the minimum required for each service?
+3. What attack surfaces would you expect in a system like the one described
+   above, and what would you prioritize mitigating first?
+
+### Response
+
+The complete corrected response is maintained in
+[`docs/llm-resilience-secrets-security.md`](docs/llm-resilience-secrets-security.md).
+It covers provider-specific resilience pipelines, distributed circuit
+breakers, compatible fallback and queue degradation, CI/CD and runtime secret
+handling, staged rotation, least-privilege identities, LLM-specific attack
+surfaces, RAG/LoRA poisoning, supply-chain risk, and mitigation priorities.
