@@ -20,7 +20,7 @@ public sealed class ManagedLocalProviderTests
         var provider = new ManagedLocalProvider(
             client,
             new FixtureCatalog(model),
-            new FixtureStorage(model),
+            new FixtureStorage(),
             new FixtureRuntime(model),
             new ManagedLocalProviderOptions { DefaultModelId = model.Id });
 
@@ -45,7 +45,7 @@ public sealed class ManagedLocalProviderTests
             string.Equals(model.Id, modelId, StringComparison.OrdinalIgnoreCase) ? model : null;
     }
 
-    private sealed class FixtureStorage(ManagedModelDefinition model) : IModelStorageService
+    private sealed class FixtureStorage : IModelStorageService
     {
         public string GetModelPath(ManagedModelDefinition value) => "/tmp/fixture.gguf";
 

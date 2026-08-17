@@ -86,12 +86,12 @@ public sealed class ModelDownloadService : IModelDownloadService
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            SetStatus(Status(model, ManagedModelState.Failed, Error: "Model download was canceled."));
+            SetStatus(Status(model, ManagedModelState.Failed, error: "Model download was canceled."));
             throw;
         }
         catch (Exception exception)
         {
-            return SetStatus(Status(model, ManagedModelState.Failed, Error: exception.Message));
+            return SetStatus(Status(model, ManagedModelState.Failed, error: exception.Message));
         }
         finally
         {

@@ -9,6 +9,7 @@ public enum LlmErrorType
     RateLimitError,
     TimeoutError,
     OutputValidationError,
+    OutputParsingError,
     SerializationError,
     UnknownError
 }

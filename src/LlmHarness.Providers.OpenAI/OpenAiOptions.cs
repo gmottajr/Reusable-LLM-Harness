@@ -6,9 +6,11 @@ public sealed record OpenAiOptions
         Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? string.Empty;
 
     public string Endpoint { get; init; } =
+        Environment.GetEnvironmentVariable("OPENAI_ENDPOINT") ??
         "https://api.openai.com/v1/chat/completions";
 
-    public string DefaultModel { get; init; } = "gpt-4o-mini";
+    public string DefaultModel { get; init; } =
+        Environment.GetEnvironmentVariable("OPENAI_DEFAULT_MODEL") ?? "gpt-4o-mini";
 
     public bool IsConfigured => !string.IsNullOrWhiteSpace(ApiKey);
 

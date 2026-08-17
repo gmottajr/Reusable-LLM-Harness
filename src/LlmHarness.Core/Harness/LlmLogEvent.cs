@@ -23,4 +23,19 @@ public sealed record LlmLogEvent
     public LlmErrorType? ErrorType { get; init; }
 
     public bool FallbackUsed { get; init; }
+
+    // Populated only for output-validation diagnostics. These fields are
+    // intentionally kept out of normal flow events unless a schema mismatch
+    // needs investigation.
+    public string? RawResponse { get; init; }
+
+    public string? NormalizedResponse { get; init; }
+
+    public string? OutputSchema { get; init; }
+
+    public string? ValidationPath { get; init; }
+
+    public string? ErrorMessage { get; init; }
+
+    public string? ErrorCode { get; init; }
 }

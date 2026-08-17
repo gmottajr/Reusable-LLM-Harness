@@ -92,7 +92,7 @@ public sealed class LlmHarness : ILlmHarness
                 _timeoutOptions,
                 fallbackHarness,
                 fallback?.Kind);
-            pipeline = new SchemaValidatingLlmHarness(pipeline, _schemaValidator);
+            pipeline = new SchemaValidatingLlmHarness(pipeline, _schemaValidator, _logger);
 
             var result = await pipeline.ExecuteAsync<TOutput>(request, cancellationToken);
             result = WithCorrelationId(result, correlationId);
@@ -172,7 +172,10 @@ public sealed class LlmHarness : ILlmHarness
             RetryCount = result.Metadata.RetryCount,
             Success = result.Success,
             ErrorType = result.Error?.Type,
-            FallbackUsed = result.Metadata.FallbackUsed
+            FallbackUsed = result.Metadata.FallbackUsed,
+            RawResponse = result.Metadata.RawResponse,
+            ErrorMessage = result.Error?.Message,
+            ErrorCode = result.Error?.Code
         });
 
     private void Log(LlmLogEvent logEvent)

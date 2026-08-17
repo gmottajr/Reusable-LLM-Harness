@@ -37,7 +37,7 @@ public sealed class TimeoutLlmHarness : ILlmHarness
 
         try
         {
-            var primaryResult = await ExecuteWithTimeout(
+            var primaryResult = await ExecuteWithTimeout<TOutput>(
                 _primaryHarness,
                 request,
                 timeout,
@@ -45,7 +45,7 @@ public sealed class TimeoutLlmHarness : ILlmHarness
 
             if (IsTimeout(primaryResult.Error))
             {
-                return await ExecuteFallbackOrReturnTimeout(
+                return await ExecuteFallbackOrReturnTimeout<TOutput>(
                     request,
                     timeout,
                     stopwatch,
@@ -94,7 +94,7 @@ public sealed class TimeoutLlmHarness : ILlmHarness
 
         try
         {
-            var fallbackResult = await ExecuteWithTimeout(
+            var fallbackResult = await ExecuteWithTimeout<TOutput>(
                 _fallbackHarness,
                 request,
                 timeout,

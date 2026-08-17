@@ -55,7 +55,7 @@ internal sealed class ProviderCallHarness : ILlmHarness
         {
             return LlmResult<TOutput>.CreateFailure(
                 new LlmError(
-                    LlmErrorType.SerializationError,
+                    LlmErrorType.OutputParsingError,
                     "The provider returned an empty response.",
                     Retryable: false),
                 ProviderMetadata(request, response));
@@ -68,12 +68,12 @@ internal sealed class ProviderCallHarness : ILlmHarness
                 output!,
                 ProviderMetadata(request, response));
         }
-        catch (JsonException)
+        catch (JsonException exception)
         {
             return LlmResult<TOutput>.CreateFailure(
                 new LlmError(
-                    LlmErrorType.SerializationError,
-                    "The provider response could not be converted to the requested output type.",
+                    LlmErrorType.OutputParsingError,
+                    exception.Message,
                     Retryable: false),
                 ProviderMetadata(request, response));
         }
@@ -97,11 +97,20 @@ internal sealed class ProviderCallHarness : ILlmHarness
 
         if (typeof(TOutput) == typeof(JsonElement))
         {
-            using var document = JsonDocument.Parse(content);
-            return (TOutput)(object)document.RootElement.Clone();
+            if (!JsonResponseNormalizer.TryParse(content, out var jsonValue))
+            {
+                throw new JsonException("The provider response did not contain a valid JSON value.");
+            }
+
+            return (TOutput)(object)jsonValue;
         }
 
-        return JsonSerializer.Deserialize<TOutput>(content);
+        if (!JsonResponseNormalizer.TryParse(content, out var normalizedJson))
+        {
+            throw new JsonException("The provider response did not contain a valid JSON value.");
+        }
+
+        return JsonSerializer.Deserialize<TOutput>(normalizedJson.GetRawText());
     }
 
     private LlmMetadata ProviderMetadata(
@@ -113,6 +122,7 @@ internal sealed class ProviderCallHarness : ILlmHarness
             SelectedProvider = _provider.Kind,
             Model = response?.Model ?? request.Model,
             RequestId = response?.ProviderRequestId,
+            RawResponse = response?.Content,
             CompletedAt = DateTimeOffset.UtcNow
         };
 }

@@ -1,6 +1,6 @@
 # Small Reusable LLM Harness
 
-This repository contains a backend-first .NET 8 implementation of a small,
+This repository contains a backend-first .NET 9 implementation of a small,
 provider-agnostic LLM harness. It solves the repeated application problem of
 calling different LLM providers with consistent validation, retries, timeouts,
 fallbacks, typed output, and structured errors. Application code depends on
@@ -23,6 +23,10 @@ local-model extension. Phase 10 adds centralized provider selection:
 - `ISchemaValidator` and `JsonSchemaValidator` for common JSON Schema rules.
 - `SchemaValidatingLlmHarness`, which validates successful JSON output before
   returning it to callers.
+- Structured responses accept any JSON root (object, array, string, number,
+  boolean, or null), including JSON wrapped in Markdown fences or short model
+  explanations. Responses with no JSON value return a non-retryable
+  `OutputParsingError`.
 - `LlmRetryPolicy` and `RetryingLlmHarness` for transient provider failures.
 - Retry configuration with 3 retries, 500 ms initial delay, 5 s maximum delay,
   and optional jitter by default.
@@ -33,10 +37,13 @@ local-model extension. Phase 10 adds centralized provider selection:
 - Optional one-attempt fallback harness support.
 - Duration, timeout, fallback, and selected-provider metadata.
 - `LlmHarness` for provider selection, validation, retries, timeout/fallback,
-  output validation, and safe metadata-only logging.
+  output validation, and correlation-aware flow/response diagnostics.
 - `OpenAiProvider` using `IHttpClientFactory` or an injected `HttpClient`.
 - `OpenAiOptions` with `OPENAI_API_KEY` environment-variable support.
 - OpenAI request/response mapping and normalized provider exceptions.
+- `GoogleGeminiProvider` with `generateContent` request mapping, structured
+  JSON response mode, `Google-LLM:ApiKey` User Secrets support, and normalized
+  provider errors.
 - `IProviderSelector` and `ProviderSelector` for manual, cloud-preferred, and
   local-preferred selection.
 - `ProviderSelectionOptions` with `AutoPreferCloud` as the default mode.
@@ -66,11 +73,96 @@ fallback harness is configured, it is attempted once and `FallbackUsed` is set
 in the result metadata.
 
 The orchestration logger receives correlation IDs and provider/model/result
-metadata only; prompts, responses, and credentials are not included.
+metadata. Provider responses are also written to the backend `.log` file to
+diagnose schema and parsing failures; prompts and credentials are not included.
+Do not use this diagnostic logging with sensitive production responses.
 
-The OpenAI provider reads `OPENAI_API_KEY` from the environment. Missing keys
-make the provider unavailable, and provider error messages redact the configured
-key before they become exceptions or harness results.
+The API writes request, completion, harness, and unexpected-error flow events to
+`src/LlmHarness.Api/logs/llm-harness.log` when running from the repository. Set
+`LLM_HARNESS_LOG_FILE` to choose another `.log` path. The frontend also shows a
+live flow log and can download it with the `Download .log` button; it records
+request stages and response metadata without logging prompts or credentials.
+
+The playground exposes three distinct LLM source modes:
+
+1. **Cloud API** — the API supports OpenAI, Google Gemini, Mistral, and Grok.
+   Each provider reads its API key from backend User Secrets or its matching
+   environment variable. Gemini uses the `generateContent` REST API; Mistral
+   and Grok use OpenAI-compatible chat completions.
+2. **Download and manage** — the API owns the curated model catalog, download,
+   checksum verification, and local runtime lifecycle.
+3. **Installed local LLM** — configure an existing Ollama, LM Studio, or other
+   OpenAI-compatible server in the UI. The API also accepts
+   `LLM_HARNESS_INSTALLED_LOCAL_ENDPOINT`, `LLM_HARNESS_INSTALLED_LOCAL_MODEL`,
+   and optional `LLM_HARNESS_INSTALLED_LOCAL_API_KEY` environment variables.
+
+Missing cloud keys or unavailable local runtimes are reported as structured
+provider status; they do not prevent the API from starting. Provider error
+messages redact configured keys before they become exceptions or harness
+results.
+
+## Frontend behavior
+
+The React playground is organized around one active source at a time. The user
+first selects Cloud API, Download and manage, or Installed local LLM. The page
+then shows only the setup controls relevant to that source and reuses one
+shared completion form for the actual request.
+
+Cloud API supports OpenAI, Google Gemini, Mistral, and Grok. The frontend
+displays provider availability but never receives or displays the actual API key. User Secrets
+are loaded by the backend into dependency-injected provider options. If a key
+is missing, the page reports that the provider needs setup; the key must be
+configured in the backend rather than placed in browser code.
+
+The page also provides source readiness cards, managed-model lifecycle
+controls, installed-local endpoint/model testing, structured JSON schema input,
+result metadata, structured errors, Swagger navigation, and a downloadable
+frontend `.log` flow trace. See
+[`frontend/llm-harness-web/README.md`](frontend/llm-harness-web/README.md) for
+the complete frontend workflow and endpoint list.
+
+## Frontend screens and usage
+
+The playground has one shared layout with a source-specific setup panel. Select
+one source at a time; the lower request form always sends the completion through
+`POST /api/llm/complete`.
+
+### Cloud API
+
+![Cloud API screen](docs/screenshots/cloud-api.png)
+
+Choose OpenAI, Google Gemini, Mistral, or Grok, then select the model. The API
+key is loaded by the backend from User Secrets or environment variables; it is
+never entered into or sent by the browser. Use the shared request form to set
+the prompt, timeout, and optional schema. The default `{}` schema accepts any
+valid JSON response.
+
+### Download and manage
+
+![Download and manage screen](docs/screenshots/download-and-manage.png)
+
+Choose a curated model, then use **Download & verify**, **Start runtime**, or
+**Stop**. Model files, checksum verification, and runtime operations are owned
+by the API. After the runtime is ready, select the model in the request form and
+run a completion.
+
+### Installed local LLM
+
+![Installed local LLM screen](docs/screenshots/installed-local.png)
+
+Enter the base URL and model name for an existing Ollama, LM Studio, or other
+OpenAI-compatible server. **Save & test** stores the settings through the API
+and checks connectivity. The browser still calls only the local API routes; the
+backend calls the configured local server.
+
+### Shared request, result, and logs
+
+The request panel accepts the model, timeout, system instruction, user prompt,
+and optional JSON schema. The result panel displays returned data, provider,
+model, duration, attempts, timeout, fallback, and correlation metadata. The
+frontend flow log records UI actions and HTTP outcomes and can be downloaded;
+the backend writes the detailed flow and provider-response diagnostics to
+`src/LlmHarness.Api/logs/llm-harness.log`.
 
 ## Project layout
 
@@ -92,7 +184,7 @@ The core project has no reference to provider-specific projects or SDKs.
 ## Run locally
 
 The shortest path to experiencing the project is to run the API and call it
-with `curl`. You need the .NET 8 SDK, `curl`, and optionally `jq` for readable
+with `curl`. You need the .NET 9 SDK, `curl`, and optionally `jq` for readable
 JSON extraction.
 
 ### 1. Clone and enter the repository
@@ -119,12 +211,56 @@ API behavior.
 
 ### 3. Configure OpenAI
 
-The demo API reads the key from the process environment. Set it only in your
-local shell or secret manager; do not put it in a file committed to Git.
+For local development, this API has a `UserSecretsId`, so use the .NET Secret
+Manager from the VS Code terminal. These values are stored outside the
+repository and are not committed.
 
 ```bash
-export OPENAI_API_KEY='your-api-key'
+cd src/LlmHarness.Api
+dotnet user-secrets set OPENAI_API_KEY 'your-api-key'
+dotnet user-secrets set OPENAI_DEFAULT_MODEL 'gpt-4o-mini'
+dotnet user-secrets set LLM_HARNESS_INSTALLED_LOCAL_API_KEY 'optional-local-server-key'
+dotnet user-secrets list
 ```
+
+Start the API with its Development launch profile so the secrets are loaded:
+
+```bash
+dotnet run --project src/LlmHarness.Api --urls http://localhost:5000
+```
+
+If you intentionally use `--no-launch-profile`, set the environment explicitly:
+
+```bash
+ASPNETCORE_ENVIRONMENT=Development dotnet run \
+  --project src/LlmHarness.Api --no-launch-profile --urls http://localhost:5000
+```
+
+The API also accepts `OPENAI_API_KEY`, `OPENAI_ENDPOINT`, and
+`OPENAI_DEFAULT_MODEL` as environment variables. An authenticated installed
+local server can use the `LLM_HARNESS_INSTALLED_LOCAL_API_KEY` user secret or
+environment variable. Environment variables are useful for containers and
+deployment; user secrets are intended for local development only. User secrets
+are not encrypted, so do not use them as a production secret store.
+
+Optional cloud configuration:
+
+```bash
+export OPENAI_ENDPOINT='https://api.openai.com/v1/chat/completions'
+export OPENAI_DEFAULT_MODEL='gpt-4o-mini'
+```
+
+Google Gemini can be configured with User Secrets:
+
+```bash
+dotnet user-secrets set 'Google-LLM:ApiKey' 'your-gemini-key'
+dotnet user-secrets set 'Google-LLM:Model' 'gemini-flash-latest'
+dotnet user-secrets set 'Google-LLM:URL' 'https://generativelanguage.googleapis.com/v1beta'
+```
+
+The frontend Cloud API setup panel lets you choose OpenAI, Google Gemini,
+Mistral, or Grok. The browser sends only the provider/model selection; API keys
+remain in the backend process.
 
 The API can still start without a key. In that case OpenAI appears as
 unavailable and requests that select it return a structured provider error.
@@ -164,6 +300,19 @@ the response explains that the provider is unavailable but never returns the
 key itself. The managed local provider is unavailable until its model has been
 downloaded and its runtime started, unless managed runtime auto-start is
 enabled.
+
+The source-oriented setup endpoints used by the playground are:
+
+```text
+GET  /api/setup/sources
+GET  /api/setup/installed-local
+PUT  /api/setup/installed-local
+POST /api/setup/installed-local/test
+```
+
+For installed-local mode, use a base URL such as
+`http://127.0.0.1:11434/v1` and a model already installed in that server. The
+server must answer `/models` and `/chat/completions`.
 
 ### 6. Submit a structured completion
 

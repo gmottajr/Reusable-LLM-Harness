@@ -32,7 +32,7 @@ public sealed class CoreContractsTests
             "answer",
             new LlmMetadata { AttemptCount = 1 });
         var failure = LlmResult<string>.CreateFailure(
-            new LlmError(LlmErrorType.ProviderError, "Provider failed.", retryable: true));
+            new LlmError(LlmErrorType.ProviderError, "Provider failed.", Retryable: true));
 
         Assert.True(success.Success);
         Assert.Equal("answer", success.Output);

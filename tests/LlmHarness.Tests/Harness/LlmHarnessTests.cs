@@ -25,6 +25,7 @@ public sealed class LlmHarnessTests
         Assert.True(result.Success);
         Assert.Equal("ok", result.Output!["answer"]);
         Assert.Equal(LlmProviderKind.OpenAI, result.Metadata.SelectedProvider);
+        Assert.Equal("{\"answer\":\"ok\"}", result.Metadata.RawResponse);
         Assert.False(string.IsNullOrWhiteSpace(result.Metadata.CorrelationId));
         Assert.Equal(1, provider.CompleteCalls);
         Assert.Contains(logger.Events, logEvent => logEvent.Status == "started");
@@ -121,7 +122,7 @@ public sealed class LlmHarnessTests
             async (_, cancellationToken) =>
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(100), cancellationToken);
-                return Response("too late");
+                return await Response("too late");
             });
         var harness = CreateHarness(
             [provider],
@@ -145,7 +146,7 @@ public sealed class LlmHarnessTests
             async (_, cancellationToken) =>
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(100), cancellationToken);
-                return Response("too late");
+                return await Response("too late");
             });
         var fallback = new FakeProvider(
             LlmProviderKind.Ollama,
@@ -173,7 +174,8 @@ public sealed class LlmHarnessTests
         var provider = new FakeProvider(
             LlmProviderKind.OpenAI,
             (_, _) => Response("{\"answer\":42}"));
-        var harness = CreateHarness([provider]);
+        var logger = new RecordingLogger();
+        var harness = CreateHarness([provider], logger: logger);
         var request = Request(outputSchema: """
             {
               "type": "object",
@@ -187,6 +189,49 @@ public sealed class LlmHarnessTests
         Assert.False(result.Success);
         Assert.Equal(LlmErrorType.OutputValidationError, result.Error!.Type);
         Assert.Equal("$.answer", result.Error.Code);
+        var diagnostic = Assert.Single(
+            logger.Events,
+            logEvent => logEvent.Status == "output_validation_failed");
+        Assert.Equal("{\"answer\":42}", diagnostic.RawResponse);
+        Assert.Equal(request.OutputSchema, diagnostic.OutputSchema);
+        Assert.Equal("$.answer", diagnostic.ValidationPath);
+    }
+
+    [Theory]
+    [InlineData("```json\n{\"answer\":\"ok\"}\n```", "Object")]
+    [InlineData("Here is the result:\n[1, true, null]\nDone.", "Array")]
+    [InlineData("The answer is: 42", "Number")]
+    [InlineData("Result: false", "False")]
+    [InlineData("The value is null.", "Null")]
+    [InlineData("The value is \"ready\".", "String")]
+    public async Task Structured_output_accepts_any_json_root_and_common_llm_wrappers(
+        string providerContent,
+        string expectedKind)
+    {
+        var provider = new FakeProvider(
+            LlmProviderKind.OpenAI,
+            (_, _) => Response(providerContent));
+        var harness = CreateHarness([provider]);
+
+        var result = await harness.ExecuteAsync<JsonElement>(Request());
+
+        Assert.True(result.Success);
+        Assert.Equal(Enum.Parse<JsonValueKind>(expectedKind), result.Output!.ValueKind);
+    }
+
+    [Fact]
+    public async Task Structured_output_reports_a_parsing_error_only_when_no_json_value_exists()
+    {
+        var provider = new FakeProvider(
+            LlmProviderKind.OpenAI,
+            (_, _) => Response("I cannot provide structured data."));
+        var harness = CreateHarness([provider]);
+
+        var result = await harness.ExecuteAsync<JsonElement>(Request());
+
+        Assert.False(result.Success);
+        Assert.Equal(LlmErrorType.OutputParsingError, result.Error!.Type);
+        Assert.Contains("valid JSON value", result.Error.Message);
     }
 
     private static LlmHarness.Core.Harness.LlmHarness CreateHarness(

@@ -69,7 +69,7 @@ public static class LlmRetryClassifier
             ? LlmErrorType.RateLimitError
             : LlmErrorType.ProviderError;
 
-        var message = statusCode switch
+        var fallbackMessage = statusCode switch
         {
             (int)HttpStatusCode.TooManyRequests => "The LLM provider rate limit was exceeded.",
             >= 500 and <= 599 => "The LLM provider returned a transient server error.",
@@ -77,6 +77,10 @@ public static class LlmRetryClassifier
             >= 400 and <= 499 => "The LLM provider rejected the request.",
             _ => "The LLM provider request failed."
         };
+
+        var message = string.IsNullOrWhiteSpace(exception.Message)
+            ? fallbackMessage
+            : exception.Message;
 
         return new LlmError(type, message, retryable, exception.ProviderCode);
     }

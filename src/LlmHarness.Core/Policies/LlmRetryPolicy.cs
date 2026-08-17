@@ -44,7 +44,7 @@ public sealed class LlmRetryPolicy
                 var error = LlmRetryClassifier.FromException(new TimeoutException());
                 if (!ShouldRetry(error, attempt))
                 {
-                    return Failure(error, attempt);
+                    return Failure<TOutput>(error, attempt);
                 }
 
                 await DelayBeforeRetry(attempt, cancellationToken);
@@ -55,7 +55,7 @@ public sealed class LlmRetryPolicy
                 var error = LlmRetryClassifier.FromException(exception);
                 if (!ShouldRetry(error, attempt))
                 {
-                    return Failure(error, attempt);
+                    return Failure<TOutput>(error, attempt);
                 }
 
                 await DelayBeforeRetry(attempt, cancellationToken);

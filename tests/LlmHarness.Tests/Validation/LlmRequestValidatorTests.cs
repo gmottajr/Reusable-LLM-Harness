@@ -153,7 +153,7 @@ public sealed class LlmRequestValidatorTests
         string code,
         string? message = null)
     {
-        var error = Assert.Single(result.Errors.Where(error => error.Code == code));
+        var error = Assert.Single(result.Errors, error => error.Code == code);
         Assert.False(result.IsValid);
         Assert.Equal(LlmErrorType.InputValidationError, error.Type);
         Assert.False(error.Retryable);

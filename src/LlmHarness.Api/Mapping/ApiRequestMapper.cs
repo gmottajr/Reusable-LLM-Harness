@@ -183,7 +183,7 @@ public static class ApiRequestMapper
             return false;
         }
 
-        outputSchema = schema.Value.GetRawText();
+        outputSchema = schema.Value.Clone().GetRawText();
         return true;
     }
 

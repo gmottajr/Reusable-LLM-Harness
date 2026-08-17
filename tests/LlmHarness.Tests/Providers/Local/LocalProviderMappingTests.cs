@@ -4,6 +4,7 @@ using LlmHarness.Core.Enums;
 using LlmHarness.Core.Harness;
 using LlmHarness.Core.Interfaces;
 using LlmHarness.Core.Policies;
+using CoreLlmHarness = LlmHarness.Core.Harness.LlmHarness;
 
 namespace LlmHarness.Tests.Providers.Local;
 
@@ -13,7 +14,7 @@ public sealed class LocalProviderMappingTests
     public async Task Local_provider_kind_response_is_mapped_to_typed_output()
     {
         var provider = new TestProvider();
-        var harness = new LlmHarness(
+        var harness = new CoreLlmHarness(
             [provider],
             retryPolicy: new LlmRetryPolicy(
                 new LlmRetryOptions { UseJitter = false },

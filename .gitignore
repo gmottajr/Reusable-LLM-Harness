@@ -8,3 +8,5 @@ frontend/llm-harness-web/node_modules/
 frontend/llm-harness-web/dist/
 managed-models/
 *.partial
+*.log
+logs/

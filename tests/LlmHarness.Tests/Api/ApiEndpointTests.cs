@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace LlmHarness.Tests.Api;
@@ -11,7 +12,9 @@ public sealed class ApiEndpointTests : IClassFixture<WebApplicationFactory<Progr
 
     public ApiEndpointTests(WebApplicationFactory<Program> factory)
     {
-        _client = factory.CreateClient();
+        _client = factory
+            .WithWebHostBuilder(builder => builder.UseEnvironment("Testing"))
+            .CreateClient();
     }
 
     [Fact]
@@ -31,6 +34,35 @@ public sealed class ApiEndpointTests : IClassFixture<WebApplicationFactory<Progr
         Assert.Contains(
             document.RootElement.EnumerateArray(),
             item => item.GetProperty("provider").GetString() == "OpenAI");
+    }
+
+    [Fact]
+    public async Task Setup_sources_exposes_the_three_supported_llm_paths()
+    {
+        using var response = await _client.GetAsync("/api/setup/sources");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var ids = document.RootElement
+            .EnumerateArray()
+            .Select(item => item.GetProperty("id").GetString()!)
+            .ToArray();
+
+        Assert.Equal(
+            ["cloud-api", "managed-local", "installed-local"],
+            ids);
+    }
+
+    [Fact]
+    public async Task Installed_local_setup_returns_safe_connection_settings()
+    {
+        using var response = await _client.GetAsync("/api/setup/installed-local");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal("http://127.0.0.1:11434/v1", document.RootElement.GetProperty("endpoint").GetString());
+        Assert.Equal("llama3.2", document.RootElement.GetProperty("model").GetString());
+        Assert.DoesNotContain("Bearer", document.RootElement.GetRawText(), StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -81,6 +113,33 @@ public sealed class ApiEndpointTests : IClassFixture<WebApplicationFactory<Progr
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         Assert.Equal(
             "InputValidationError",
+            document.RootElement.GetProperty("error").GetProperty("type").GetString());
+    }
+
+    [Fact]
+    public async Task Completion_with_output_schema_returns_structured_json_on_provider_failure()
+    {
+        using var response = await _client.PostAsJsonAsync(
+            "/api/llm/complete",
+            new
+            {
+                provider = "OpenAI",
+                model = "gpt-4.1-mini",
+                messages = new[]
+                {
+                    new { role = "user", content = "hello" }
+                },
+                outputSchema = new
+                {
+                    type = "object",
+                    properties = new { answer = new { type = "string" } }
+                }
+            });
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal(
+            "ProviderUnavailable",
             document.RootElement.GetProperty("error").GetProperty("type").GetString());
     }
 

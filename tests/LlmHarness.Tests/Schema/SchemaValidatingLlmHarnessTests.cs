@@ -50,6 +50,24 @@ public sealed class SchemaValidatingLlmHarnessTests
     }
 
     [Fact]
+    public async Task Json_wrapped_in_markdown_is_normalized_before_schema_validation()
+    {
+        var harness = CreateHarness("```json\n{\"answer\":\"yes\"}\n```");
+        var request = RequestWithSchema("""
+            {
+              "type": "object",
+              "required": ["answer"],
+              "properties": { "answer": { "type": "string" } }
+            }
+            """);
+
+        var result = await harness.ExecuteAsync<string>(request);
+
+        Assert.True(result.Success);
+        Assert.Equal("```json\n{\"answer\":\"yes\"}\n```", result.Output);
+    }
+
+    [Fact]
     public async Task Malformed_json_returns_structured_output_validation_error()
     {
         var harness = CreateHarness("{\"answer\":");

@@ -9,37 +9,26 @@ using LlmHarness.Core.Interfaces;
 
 namespace LlmHarness.Providers.OpenAI;
 
-public sealed class OpenAiProvider : ILlmProvider, IProviderAvailabilityDetails
+public sealed class CompatibleCloudProvider : ILlmProvider, IProviderAvailabilityDetails
 {
-    public const string HttpClientName = "LlmHarness.OpenAI";
-
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
     private readonly HttpClient _httpClient;
-    private readonly OpenAiOptions _options;
+    private readonly CompatibleCloudProviderOptions _options;
 
-    public OpenAiProvider(
-        IHttpClientFactory httpClientFactory,
-        OpenAiOptions? options = null)
-        : this(
-            GetHttpClient(httpClientFactory),
-            options)
-    {
-    }
-
-    public OpenAiProvider(
+    public CompatibleCloudProvider(
         HttpClient httpClient,
-        OpenAiOptions? options = null)
+        CompatibleCloudProviderOptions options)
     {
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
-        _options = options ?? new OpenAiOptions();
+        _options = options ?? throw new ArgumentNullException(nameof(options));
         _options.Validate();
     }
 
-    public LlmProviderKind Kind => LlmProviderKind.OpenAI;
+    public LlmProviderKind Kind => _options.Provider;
 
     public string? AvailabilityReason => _options.AvailabilityReason;
 
@@ -58,14 +47,12 @@ public sealed class OpenAiProvider : ILlmProvider, IProviderAvailabilityDetails
         if (!_options.IsConfigured)
         {
             throw new LlmProviderException(
-                _options.AvailabilityReason ?? "OpenAI provider is not configured.",
+                _options.AvailabilityReason ?? $"{Kind} provider is not configured.",
                 statusCode: (int)HttpStatusCode.Unauthorized,
                 providerCode: "missing_api_key");
         }
 
-        using var httpRequest = new HttpRequestMessage(
-            HttpMethod.Post,
-            _options.Endpoint);
+        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, _options.Endpoint);
         httpRequest.Headers.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _options.ApiKey);
         httpRequest.Content = JsonContent.Create(
@@ -84,12 +71,6 @@ public sealed class OpenAiProvider : ILlmProvider, IProviderAvailabilityDetails
         }
 
         return ParseResponse(responseBody, request);
-    }
-
-    private static HttpClient GetHttpClient(IHttpClientFactory httpClientFactory)
-    {
-        ArgumentNullException.ThrowIfNull(httpClientFactory);
-        return httpClientFactory.CreateClient(HttpClientName);
     }
 
     private OpenAiChatRequest CreateRequestBody(LlmProviderRequest request) =>
@@ -111,9 +92,7 @@ public sealed class OpenAiProvider : ILlmProvider, IProviderAvailabilityDetails
             _ => throw new ArgumentOutOfRangeException(nameof(role), role, "Unsupported message role.")
         };
 
-    private static LlmProviderResponse ParseResponse(
-        string responseBody,
-        LlmProviderRequest request)
+    private LlmProviderResponse ParseResponse(string responseBody, LlmProviderRequest request)
     {
         OpenAiChatResponse? response;
         try
@@ -123,7 +102,7 @@ public sealed class OpenAiProvider : ILlmProvider, IProviderAvailabilityDetails
         catch (JsonException exception)
         {
             throw new LlmProviderException(
-                "OpenAI returned an invalid response payload.",
+                $"{Kind} returned an invalid response payload.",
                 providerCode: "invalid_response",
                 innerException: exception);
         }
@@ -132,14 +111,14 @@ public sealed class OpenAiProvider : ILlmProvider, IProviderAvailabilityDetails
         if (response is null || choice?.Message?.Content is null)
         {
             throw new LlmProviderException(
-                "OpenAI returned no assistant content.",
+                $"{Kind} returned no assistant content.",
                 providerCode: "empty_response");
         }
 
         return new LlmProviderResponse(
             choice.Message.Content,
-            LlmProviderKind.OpenAI,
-            request.Model,
+            Kind,
+            request.Model ?? _options.DefaultModel,
             choice.FinishReason,
             response.Id,
             response.Usage?.PromptTokens,
@@ -151,28 +130,50 @@ public sealed class OpenAiProvider : ILlmProvider, IProviderAvailabilityDetails
         string responseBody)
     {
         var providerError = TryParseError(responseBody);
-        return new LlmProviderException(
-            Sanitize(providerError?.Message ?? "OpenAI returned an error response."),
-            (int)statusCode,
-            providerError?.Code);
+        var message = providerError.Message ?? $"{Kind} returned an error response.";
+        if (!string.IsNullOrEmpty(_options.ApiKey))
+        {
+            message = message.Replace(_options.ApiKey, "[REDACTED]", StringComparison.Ordinal);
+        }
+
+        return new LlmProviderException(message, (int)statusCode, providerError.Code);
     }
 
-    private string Sanitize(string value) =>
-        string.IsNullOrEmpty(_options.ApiKey)
-            ? value
-            : value.Replace(_options.ApiKey, "[REDACTED]", StringComparison.Ordinal);
-
-    private static OpenAiError? TryParseError(string responseBody)
+    private static (string? Message, string? Code) TryParseError(string responseBody)
     {
         try
         {
-            return JsonSerializer.Deserialize<OpenAiErrorEnvelope>(responseBody, JsonOptions)?.Error;
+            using var document = JsonDocument.Parse(responseBody);
+            var root = document.RootElement;
+            var message = ReadString(root, "message");
+            var code = ReadString(root, "code");
+
+            if (root.TryGetProperty("error", out var error))
+            {
+                if (error.ValueKind == JsonValueKind.String)
+                {
+                    message ??= error.GetString();
+                }
+                else if (error.ValueKind == JsonValueKind.Object)
+                {
+                    message ??= ReadString(error, "message");
+                    code ??= ReadString(error, "code");
+                }
+            }
+
+            return (message, code);
         }
         catch (JsonException)
         {
-            return null;
+            return (null, null);
         }
     }
+
+    private static string? ReadString(JsonElement element, string propertyName) =>
+        element.TryGetProperty(propertyName, out var property) &&
+        property.ValueKind == JsonValueKind.String
+            ? property.GetString()
+            : null;
 
     private sealed record OpenAiChatRequest(
         string Model,
@@ -216,13 +217,4 @@ public sealed class OpenAiProvider : ILlmProvider, IProviderAvailabilityDetails
         public int? CompletionTokens { get; init; }
     }
 
-    private sealed class OpenAiErrorEnvelope
-    {
-        public OpenAiError? Error { get; init; }
-    }
-
-    private sealed record OpenAiError(
-        string? Message,
-        string? Type,
-        string? Code);
 }

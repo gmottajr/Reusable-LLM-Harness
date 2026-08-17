@@ -25,4 +25,9 @@ public sealed record LlmMetadata
     public string? RequestId { get; init; }
 
     public DateTimeOffset? CompletedAt { get; init; }
+
+    /// <summary>
+    /// Raw provider content retained for diagnostic logging.
+    /// </summary>
+    public string? RawResponse { get; init; }
 }

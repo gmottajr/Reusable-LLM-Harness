@@ -18,7 +18,7 @@ public sealed record ApiMetadataResponse(
 
 public sealed record ApiLlmResultResponse<TData>(
     bool Success,
-    TData? Data,
+    object? Data,
     ApiErrorResponse? Error,
     ApiMetadataResponse Metadata);
 

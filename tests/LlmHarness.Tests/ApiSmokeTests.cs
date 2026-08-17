@@ -23,5 +23,14 @@ public sealed class ApiSmokeTests : IClassFixture<WebApplicationFactory<Program>
         Assert.Equal("healthy", payload?.Status);
     }
 
+    [Fact]
+    public async Task Swagger_ui_is_available_at_the_root()
+    {
+        using var response = await _client.GetAsync("/");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("swagger-ui", await response.Content.ReadAsStringAsync());
+    }
+
     private sealed record HealthResponse(string Status);
 }
