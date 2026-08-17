@@ -618,3 +618,89 @@ It covers provider-specific resilience pipelines, distributed circuit
 breakers, compatible fallback and queue degradation, CI/CD and runtime secret
 handling, staged rotation, least-privilege identities, LLM-specific attack
 surfaces, RAG/LoRA poisoning, supply-chain risk, and mitigation priorities.
+
+## Assessment: AI-Assisted Development Workflow
+
+### Question
+
+Describe a specific example of using AI tools such as Claude Code, Copilot, or
+similar to generate a test, review your own code, or catch an edge case.
+Include at least one example of a test you rejected or modified, and explain
+why.
+
+### Response
+
+I structure AI-assisted development around an **AI Agent Harness**. Instead of
+giving an agent an open-ended coding task, I define the environment it works
+within through written specifications, architectural constraints, acceptance
+criteria, tests, and review gates. My normal loop is:
+
+```text
+specification
+  -> agent implementation or test proposal
+  -> direct diff and test review
+  -> deviation and edge-case analysis
+  -> approval or correction
+  -> next phase
+```
+
+I use tools such as Claude Code and Codex for implementation, test generation,
+code review, and edge-case discovery, while architectural decisions and final
+correctness remain human-controlled. The agent’s delivery summary is not the
+source of truth; the source of truth is the specification, the actual diff,
+and independently reviewed test behavior.
+
+A concrete example came from my work on the **Everykey
+fingerprint/autofill system**. I gave Claude an implementation specification
+and reviewed the resulting Git diff directly. The implementation introduced a
+**weighted scoring engine** by generalizing from common autofill approaches,
+even though the existing `ff_field_mappings_v1` storage design already
+provided the required exact-match mechanism. The generated code was internally
+reasonable and the agent reported the implementation as successful, but it was
+an architectural deviation from the specified design. I rejected that
+implementation direction and brought the code back to the existing
+deterministic mapping model. This showed why an agent can produce technically
+plausible code that is still wrong for the system being built.
+
+I also use AI to generate tests, but I review the test premise as carefully as
+the production code. In another Everykey/KMP implementation, Claude generated
+a password-strength test asserting that a **26-character lowercase-only
+password should evaluate as `WEAK`**. I rejected the generated test as
+written. During review I found that its premise came from assumed entropy
+thresholds of `28/36/60/90` bits, while the reference specification used
+`10/20/30/40` thresholds and its own classification rules. The test was
+therefore encoding Claude’s assumption rather than validating the product
+specification.
+
+I rewrote the test so that its expected result came from the reference
+specification rather than the generated assumption. In illustrative form:
+
+```kotlin
+@Test
+fun longLowercasePasswordFollowsReferenceRules() {
+    val result = evaluatePassword("<26 lowercase characters>")
+    assertEquals(expectedStrengthFromReferenceSpec, result.strength)
+}
+```
+
+The corrected test then **failed against the production implementation**. That
+failure was useful: it exposed that `PasswordEvaluation.windows.kt` was
+systematically underrating passwords. I treated the failure as a production
+defect and would not accept the phase until the implementation was corrected
+and the full regression suite passed. This is an important distinction: an AI
+generated green test can pass because both the test assumption and the
+implementation share the same mistake.
+
+I use TDD and explicit acceptance gates as part of the harness, including
+positive and negative scenarios, boundary values, regression counts, and
+phase-specific criteria. In the KMP work, a phase was not considered complete
+until the suite reached the required **138 passing tests with zero regressions**
+against the agreed baseline. I also review generated tests for false
+assumptions, overly broad mocks, missing authorization or error cases, flaky
+timing, and tests that merely reproduce the implementation instead of
+verifying the specification.
+
+AI can generate implementations, propose tests, identify edge cases, and
+accelerate review, but I do not delegate correctness or architectural
+authority to it. **Passing is not the same as correct; the test itself must
+also be reviewed.**
